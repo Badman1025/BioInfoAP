@@ -33,7 +33,7 @@
   reg('该模块尚未实现', 'This module is not implemented yet.');
 
   // 首页
-  reg('生物信息学在线分析平台', 'Bioinformatics Analysis Platform');
+  reg('生物信息学在线分析平台', 'Bioinformatics Studio');
   reg('Bioinformatics Studio', 'Bioinformatics Studio');
   reg('极速导入，便捷分析', 'Fast import, easy analysis');
   reg('界面语言', 'Interface language');
@@ -42,7 +42,7 @@
     'Common bioinformatics analyses — set / enrichment / correlation / dimensionality reduction / differential / clustering / statistical testing / survival / sequence. All computation runs locally in your browser; no data is uploaded and no network connection is required.');
   reg('使用步骤', 'Getting started');
 
-  reg('<li>左侧选择需要的分析模块，例如「韦恩图 / Venn」或「聚类热图 / Heatmap」。</li>' +
+  reg('<li>左侧选择需要的分析模块，例如「韦恩图」或「聚类热图」。</li>' +
     '<li>页面顶部会给出<b>输入数据格式示例</b>，按示例格式整理数据即可；可点<b>下载模板</b>、<b>加载示例数据</b>，或直接把 Excel 里的表格复制粘贴到输入框。</li>' +
     '<li>设置参数后点<b>开始分析</b>，结果图与结果表均可导出 SVG / PNG / TSV。</li>' +
     '<li>左下角可切换<b>界面语言</b>（中文 / English）——界面文字与图内文字会一起切换，便于直接用于中英文论文投稿。</li>',
@@ -237,7 +237,6 @@
 
   function navItem(cfg) {
     var node = el('div.nav-item', { 'data-id': cfg.id }, [
-      el('span.ni-icon', { text: cfg.icon }),
       el('span', { text: cfg.name })
     ]);
     node.addEventListener('click', function () { location.hash = '#/' + cfg.id; });
@@ -287,16 +286,19 @@
   /* ------------------------------- 首页 --------------------------------- */
 
   function renderHome(main) {
-    main.appendChild(el('div.page-head', [
-      el('h1', { text: WB.t('生物信息学在线分析平台') }),
-      el('p', { text: WB.t('集合 / 富集 / 相关性 / 降维 / 差异 / 聚类 / 统计检验 / 生存分析 / 序列常用分析工具；全部计算在浏览器本地完成，数据不上传，无需联网即可使用。') })
+    main.appendChild(el('div.page-head.home-head', [
+      el('img.home-logo', { src: 'assets/img/logo-mark.png', alt: 'Bioinformatics Studio' }),
+      el('div.home-head-text', [
+        el('h1', { text: WB.t('生物信息学在线分析平台') }),
+        el('p', { text: WB.t('集合 / 富集 / 相关性 / 降维 / 差异 / 聚类 / 统计检验 / 生存分析 / 序列常用分析工具；全部计算在浏览器本地完成，数据不上传，无需联网即可使用。') })
+      ])
     ]));
 
     var cards = el('div.home-grid');
     (WB.toolOrder || []).forEach(function (id) {
       var t = WB.tools[id];
       var c = el('div.home-card', [
-        el('h3', [el('span.dot', { style: { background: t.color || '#2f5fd8' } }), el('span', { text: WB.t(t.name) })]),
+        el('h3', { text: WB.t(t.name) }),
         el('p', { text: WB.t(t.desc) }),
         el('div.hc-tags', (t.tags || []).map(function (tg) { return el('span.tag', { text: WB.t(tg) }); }))
       ]);
@@ -308,7 +310,7 @@
     var info = WB.ui.card(WB.t('使用步骤'));
     var body = info.querySelector('.card-body');
     body.appendChild(el('ol.steps', {
-      html: WB.t('<li>左侧选择需要的分析模块，例如「韦恩图 / Venn」或「聚类热图 / Heatmap」。</li>' +
+      html: WB.t('<li>左侧选择需要的分析模块，例如「韦恩图」或「聚类热图」。</li>' +
         '<li>页面顶部会给出<b>输入数据格式示例</b>，按示例格式整理数据即可；可点<b>下载模板</b>、<b>加载示例数据</b>，或直接把 Excel 里的表格复制粘贴到输入框。</li>' +
         '<li>设置参数后点<b>开始分析</b>，结果图与结果表均可导出 SVG / PNG / TSV。</li>' +
         '<li>左下角可切换<b>界面语言</b>（中文 / English）——界面文字与图内文字会一起切换，便于直接用于中英文论文投稿。</li>')

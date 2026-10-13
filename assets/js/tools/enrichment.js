@@ -10,7 +10,7 @@
   /* ------------------------- 界面文案（中 → 英） -------------------------- */
   WB.i18n.regUI({
     /* 模块与页面标题 */
-    '富集分析 / ORA': 'Enrichment analysis / ORA',
+    '富集分析': 'Enrichment analysis',
     'GO / KEGG / Reactome 等基因集富集：超几何检验 + BH 校正，输出气泡图、条形图与结果表。':
       'Gene-set enrichment for GO / KEGG / Reactome etc.: hypergeometric test + BH correction, with dot plot, bar plot and result table.',
     'GMT 上传': 'GMT upload',
@@ -637,7 +637,7 @@
 
   WB.register({
     id: 'enrichment',
-    name: '富集分析 / ORA',
+    name: '富集分析',
     icon: '⬢',
     color: '#7d5bb8',
     desc: 'GO / KEGG / Reactome 等基因集富集：超几何检验 + BH 校正，输出气泡图、条形图与结果表。',

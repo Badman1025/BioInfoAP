@@ -9,7 +9,7 @@
   /* ------------------------- 界面文案（中 → 英） -------------------------- */
   WB.i18n.regUI({
     /* 模块元信息 */
-    'ROC 曲线与 AUC / ROC & AUC': 'ROC curves & AUC',
+    'ROC 曲线与 AUC': 'ROC curves & AUC',
     '二分类判别能力评估：输入真实标签与一个或多个预测分数，绘制 ROC 曲线、计算 AUC（梯形积分）以及 Youden 指数最佳截断点对应的灵敏度、特异度、PPV、NPV 与准确率。':
       'Binary discrimination performance: given true labels and one or more prediction scores, draws ROC curves and reports the AUC (trapezoidal integration) plus sensitivity, specificity, PPV, NPV and accuracy at the Youden-optimal cut-off.',
     'ROC': 'ROC',
@@ -143,7 +143,7 @@
 
   WB.register({
     id: 'roc',
-    name: 'ROC 曲线与 AUC / ROC & AUC',
+    name: 'ROC 曲线与 AUC',
     icon: '◠',
     color: '#3b6ea5',
     desc: '二分类判别能力评估：输入真实标签与一个或多个预测分数，绘制 ROC 曲线、计算 AUC（梯形积分）以及 Youden 指数最佳截断点对应的灵敏度、特异度、PPV、NPV 与准确率。',

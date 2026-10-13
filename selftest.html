@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>自检</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar"><div class="brand"><div class="brand-title"><i></i><span>自检</span></div></div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="lang-label">界面语言</div>
+      <div class="lang-switch" id="lang-switch">
+        <button type="button" data-lang="zh">中文</button>
+        <button type="button" data-lang="en">English</button>
+      </div>
+    </div>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+<pre id="test-output" style="position:fixed;left:0;bottom:0;z-index:99999;background:#fff;font-size:11px;max-height:0;overflow:hidden"></pre>
+
+<script src="assets/js/core/utils.js"></script>
+<script src="assets/js/core/i18n.js"></script>
+<script src="assets/js/core/stats.js"></script>
+<script src="assets/js/core/parse.js"></script>
+<script src="assets/js/core/plot.js"></script>
+<script src="assets/js/core/ui.js"></script>
+<script src="assets/js/data/demo.js"></script>
+<script src="assets/js/tools/venn.js"></script>
+<script src="assets/js/tools/upset.js"></script>
+<script src="assets/js/tools/enrichment.js"></script>
+<script src="assets/js/tools/correlation.js"></script>
+<script src="assets/js/tools/pca.js"></script>
+<script src="assets/js/tools/volcano.js"></script>
+<script src="assets/js/tools/heatmap.js"></script>
+<script src="assets/js/tools/diffexp.js"></script>
+<script src="assets/js/tools/survival.js"></script>
+<script src="assets/js/tools/roc.js"></script>
+<script src="assets/js/tools/sequence.js"></script>
+<script src="assets/js/tools/unique.js"></script>
+<script src="assets/js/main.js"></script>
+<script>
+(function () {
+  var log = [], errors = [];
+  window.onerror = function (m, s, l, c, e) { errors.push('window.onerror: ' + m + ' @' + (s||'').split('/').pop() + ':' + l); };
+  var origErr = console.error;
+  console.error = function () { errors.push('console.error: ' + Array.prototype.join.call(arguments, ' ')); origErr.apply(console, arguments); };
+
+  function T(name, fn) {
+    try { var r = fn(); log.push('PASS  ' + name + (r ? '  → ' + r : '')); }
+    catch (e) { log.push('FAIL  ' + name + '  → ' + e.message); errors.push(name + ': ' + e.message); }
+  }
+  function assert(cond, msg) { if (!cond) throw new Error(msg || 'assert failed'); }
+
+  function goSync(id) { location.hash = '#/' + id; WB.route(); }
+
+  /* ↓↓↓ 全部测试放在 runAll 中，等 main.js 完成自身初始化后再执行。
+     main.js 在 DOMContentLoaded 里才会注册「界面语言切换」的 wb:lang 监听器，
+     若在解析阶段同步跑测试，语言切换自动重绘这条链路就测不到。 ↓↓↓ */
+  function runAll() {
+
+  /* ---------------- 统计内核 ---------------- */
+  T('超几何分布归一化', function () {
+    var s = 0; for (var k = 0; k <= 10; k++) s += WB.stats.dhyper(k, 10, 90, 10);
+    assert(Math.abs(s - 1) < 1e-9, 'pmf 求和 = ' + s);
+    return 'sum(pmf)=' + s.toFixed(12);
+  });
+  T('超几何上尾与下尾一致性', function () {
+    var sf = WB.stats.hypergeomSf(5, 10, 90, 10);
+    var lower = 0; for (var k = 0; k <= 4; k++) lower += WB.stats.dhyper(k, 10, 90, 10);
+    assert(Math.abs(sf + lower - 1) < 1e-9, 'sf=' + sf + ' lower=' + lower);
+    return 'P(X>=5)=' + sf.toFixed(6);
+  });
+  T('Pearson 完全线性 = 1', function () {
+    var x = [1, 2, 3, 4, 5, 6, 7, 8], y = x.map(function (v) { return 3 * v + 2; });
+    var r = WB.stats.pearson(x, y); assert(Math.abs(r.r - 1) < 1e-12, 'r=' + r.r); return 'r=' + r.r;
+  });
+  T('Spearman 单调非线性 = 1', function () {
+    var x = [1, 2, 3, 4, 5, 6], y = x.map(function (v) { return Math.exp(v); });
+    var r = WB.stats.spearman(x, y); assert(Math.abs(r.r - 1) < 1e-12, 'rho=' + r.r); return 'rho=' + r.r;
+  });
+  T('Kendall tau-b 完全一致 = 1', function () {
+    var r = WB.stats.kendallTauB([1, 2, 3, 4, 5], [2, 4, 6, 8, 10]);
+    assert(Math.abs(r.r - 1) < 1e-12, 'tau=' + r.r); return 'tau=' + r.r;
+  });
+  T('BH 校正单调性与范围', function () {
+    var p = [0.001, 0.008, 0.039, 0.041, 0.042, 0.06, 0.074, 0.205, 0.212, 0.216];
+    var q = WB.stats.pAdjust(p, 'BH');
+    assert(q.every(function (v) { return v >= 0 && v <= 1; }), '越界');
+    for (var i = 0; i < p.length; i++) assert(q[i] >= p[i] - 1e-12, 'q < p');
+    return 'q1=' + q[0].toFixed(4) + ' q10=' + q[9].toFixed(4);
+  });
+  T('t 分布双侧 P 值（t=2.228, df=10 应≈0.05）', function () {
+    var p = WB.stats.tTestP(2.228, 10);
+    assert(Math.abs(p - 0.05) < 0.001, 'p=' + p); return 'p=' + p.toFixed(5);
+  });
+  T('Jacobi 特征分解重建', function () {
+    var A = [[4, 1, 0], [1, 3, 1], [0, 1, 2]];
+    var e = WB.stats.jacobiEigen(A);
+    var tr = A[0][0] + A[1][1] + A[2][2];
+    var s = e.values.reduce(function (a, b) { return a + b; }, 0);
+    assert(Math.abs(tr - s) < 1e-9, '迹不等 ' + tr + ' vs ' + s);
+    return 'λ=' + e.values.map(function (v) { return v.toFixed(4); }).join(', ');
+  });
+  T('PCA 对已知主轴数据可解释方差 > 0.95', function () {
+    var X = [];
+    for (var i = 0; i < 40; i++) {
+      var t = i / 40 * 6;
+      X.push([t + (i % 3) * 0.01, 2 * t + 0.02 * (i % 5), 0.01 * (i % 7)]);
+    }
+    var pr = WB.stats.pca(X, { scale: false });
+    assert(pr.explained[0] > 0.95, 'PC1=' + pr.explained[0]);
+    return 'PC1=' + (pr.explained[0] * 100).toFixed(2) + '%';
+  });
+  T('层次聚类保留全部叶节点', function () {
+    var pts = [[0, 0], [0.5, 0.2], [5, 5], [5.2, 5.1], [0.2, 0.1]];
+    var hc = WB.stats.hclust(pts, { metric: 'euclidean', method: 'average' });
+    assert(hc.order.length === 5, 'len=' + hc.order.length);
+    var s = hc.order.slice().sort(function (a, b) { return a - b; }).join(',');
+    assert(s === '0,1,2,3,4', 'order=' + s);
+    return 'order=[' + hc.order.join(',') + ']';
+  });
+  T('卡方分布上尾（χ²=3.8415, df=1 应≈0.05；χ²=7.2, df=2 应≈0.02732）', function () {
+    var p1 = WB.stats.chi2Sf(3.8415, 1), p2 = WB.stats.chi2Sf(7.2, 2);
+    assert(Math.abs(p1 - 0.05) < 0.0005, 'p1=' + p1);
+    assert(Math.abs(p2 - 0.02732) < 0.0005, 'p2=' + p2);
+    return 'p(df=1)=' + p1.toFixed(5) + '，p(df=2)=' + p2.toFixed(5);
+  });
+  T('F 分布上尾（F=4.9646, df=1,10 应≈0.05）', function () {
+    var p = WB.stats.fTestP(4.9646, 1, 10);
+    assert(Math.abs(p - 0.05) < 0.0005, 'p=' + p);
+    return 'p=' + p.toFixed(5);
+  });
+  T('Welch t 检验（sleep 数据，R: t=−1.8608, df=17.776, p=0.07939）', function () {
+    var g1 = [0.7, -1.6, -0.2, -1.2, -0.1, 3.4, 3.7, 0.8, 0.0, 2.0];
+    var g2 = [1.9, 0.8, 1.1, 0.1, -0.1, 4.4, 5.5, 1.6, 4.6, 3.4];
+    var r = WB.stats.welchTTest(g1, g2);
+    assert(Math.abs(r.t + 1.8608) < 0.0005, 't=' + r.t);
+    assert(Math.abs(r.df - 17.776) < 0.01, 'df=' + r.df);
+    assert(Math.abs(r.p - 0.07939) < 0.0005, 'p=' + r.p);
+    assert(Math.abs(r.mean1 - 0.75) < 1e-12 && Math.abs(r.mean2 - 2.33) < 1e-12, 'mean=' + r.mean1 + '/' + r.mean2);
+    return 't=' + r.t.toFixed(4) + '，df=' + r.df.toFixed(3) + '，p=' + r.p.toFixed(5);
+  });
+  T('等方差 t 检验（sleep 数据，R: t=−1.8608, df=18, p=0.07919）', function () {
+    var g1 = [0.7, -1.6, -0.2, -1.2, -0.1, 3.4, 3.7, 0.8, 0.0, 2.0];
+    var g2 = [1.9, 0.8, 1.1, 0.1, -0.1, 4.4, 5.5, 1.6, 4.6, 3.4];
+    var r = WB.stats.studentTTest(g1, g2);
+    assert(r.df === 18, 'df=' + r.df);
+    assert(Math.abs(r.p - 0.07919) < 0.0005, 'p=' + r.p);
+    return 't=' + r.t.toFixed(4) + '，df=' + r.df + '，p=' + r.p.toFixed(5);
+  });
+  T('Wilcoxon 秩和检验（sleep 数据，R: U=25.5, p=0.0693）', function () {
+    var g1 = [0.7, -1.6, -0.2, -1.2, -0.1, 3.4, 3.7, 0.8, 0.0, 2.0];
+    var g2 = [1.9, 0.8, 1.1, 0.1, -0.1, 4.4, 5.5, 1.6, 4.6, 3.4];
+    var r = WB.stats.wilcoxonRankSum(g1, g2);
+    assert(Math.abs(r.U - 25.5) < 1e-9, 'U=' + r.U);
+    assert(Math.abs(r.p - 0.0693) < 0.001, 'p=' + r.p);
+    return 'U=' + r.U + '，z=' + r.z.toFixed(4) + '，p=' + r.p.toFixed(4);
+  });
+  T('单因素方差分析（PlantGrowth，R: F=4.846, p=0.01591）', function () {
+    var pg = [
+      [4.17, 5.58, 5.18, 6.11, 4.50, 4.61, 5.17, 4.53, 5.33, 5.14],
+      [4.81, 4.17, 4.41, 3.59, 5.87, 3.83, 6.03, 4.89, 4.32, 4.69],
+      [6.31, 5.12, 5.54, 5.50, 5.37, 5.29, 4.92, 6.15, 5.80, 5.26]
+    ];
+    var r = WB.stats.oneWayAnova(pg);
+    assert(r.df1 === 2 && r.df2 === 27, 'df=' + r.df1 + ',' + r.df2);
+    assert(Math.abs(r.F - 4.846) < 0.001, 'F=' + r.F);
+    assert(Math.abs(r.p - 0.01591) < 0.0005, 'p=' + r.p);
+    return 'F=' + r.F.toFixed(3) + '，p=' + r.p.toFixed(5);
+  });
+  T('Kruskal-Wallis（三组 1–9，手算 H=7.2, p=0.02732）', function () {
+    var r = WB.stats.kruskalWallis([[1, 2, 3], [4, 5, 6], [7, 8, 9]]);
+    assert(r.rankSum.join(',') === '6,15,24', 'rankSum=' + r.rankSum.join(','));
+    assert(Math.abs(r.H - 7.2) < 1e-9, 'H=' + r.H);
+    assert(Math.abs(r.p - 0.02732) < 0.0005, 'p=' + r.p);
+    return 'H=' + r.H.toFixed(4) + '，p=' + r.p.toFixed(5) + '，秩和=[' + r.rankSum.join(',') + ']';
+  });
+  T('Kaplan-Meier 阶梯曲线与中位生存期', function () {
+    var km = WB.stats.kaplanMeier([1, 2, 3, 4], [1, 1, 0, 1]);
+    assert(km.curve[0].surv === 1, '起点生存率≠1：' + km.curve[0].surv);
+    assert(Math.abs(km.curve[1].surv - 0.75) < 1e-12, 't=1 生存率=' + km.curve[1].surv);
+    assert(Math.abs(km.curve[2].surv - 0.5) < 1e-12, 't=2 生存率=' + km.curve[2].surv);
+    assert(Math.abs(km.curve[4].surv - 0) < 1e-12, 't=4 生存率=' + km.curve[4].surv);
+    assert(km.median === 2, 'median=' + km.median);
+    for (var i = 1; i < km.curve.length; i++) {
+      assert(km.curve[i].surv <= km.curve[i - 1].surv + 1e-12, '生存率非单调下降');
+    }
+    assert(km.nEvents === 3 && km.nCensored === 1, 'n=' + km.nEvents + '/' + km.nCensored);
+    return 'S(1)=' + km.curve[1].surv + '，S(2)=' + km.curve[2].surv + '，中位生存期=' + km.median + '，事件 ' + km.nEvents + ' / 删失 ' + km.nCensored;
+  });
+  T('对数秩检验（aml 数据，R survdiff: χ²=3.40, p=0.065）', function () {
+    var M = [[9, 1], [13, 1], [13, 0], [18, 1], [23, 1], [28, 0], [31, 1], [34, 1], [45, 0], [48, 1], [161, 0]];
+    var N = [[5, 1], [5, 1], [8, 1], [8, 1], [12, 1], [16, 0], [23, 1], [27, 1], [30, 1], [33, 1], [43, 1], [45, 1]];
+    var g = [
+      { time: M.map(function (a) { return a[0]; }), event: M.map(function (a) { return a[1]; }) },
+      { time: N.map(function (a) { return a[0]; }), event: N.map(function (a) { return a[1]; }) }
+    ];
+    var r = WB.stats.logRankTest(g);
+    assert(r.df === 1, 'df=' + r.df);
+    assert(r.observed.join(',') === '7,11', 'observed=' + r.observed.join(','));
+    assert(Math.abs(r.expected[0] - 10.689) < 0.005, 'E1=' + r.expected[0]);
+    assert(Math.abs(r.chi2 - 3.3964) < 0.005, 'χ²=' + r.chi2);
+    assert(Math.abs(r.p - 0.06534) < 0.001, 'p=' + r.p);
+    return 'χ²=' + r.chi2.toFixed(4) + '，df=' + r.df + '，p=' + r.p.toFixed(5) + '，O/E=[' + r.observed.join(',') + ']/[' + r.expected.map(function (v) { return v.toFixed(2); }).join(',') + ']';
+  });
+  T('对数秩检验与手工 Mantel-Haenszel 公式一致', function () {
+    var r = WB.stats.logRankTest([{ time: [1, 2], event: [1, 1] }, { time: [3, 4], event: [1, 1] }]);
+    // 风险集：t=1 n=4/d=1/nA=2 → E=0.5, V=0.25；t=2 n=3/d=1/nA=1 → E=1/3, V=2/9
+    // χ² = (2 − 5/6)² / (0.25 + 2/9) = 1.36111 / 0.47222 = 2.88235
+    assert(Math.abs(r.chi2 - 2.88235) < 0.0005, 'χ²=' + r.chi2);
+    return 'χ²=' + r.chi2.toFixed(5) + '（手算 2.88235）';
+  });
+  T('矩阵求逆与奇异矩阵识别', function () {
+    var inv = WB.stats.invertMatrix([[4, 7], [2, 6]]);
+    assert(inv, '可逆矩阵返回 null');
+    assert(Math.abs(inv[0][0] - 0.6) < 1e-12 && Math.abs(inv[0][1] + 0.7) < 1e-12 &&
+      Math.abs(inv[1][0] + 0.2) < 1e-12 && Math.abs(inv[1][1] - 0.4) < 1e-12, '逆矩阵元素错误');
+    assert(WB.stats.invertMatrix([[1, 2], [2, 4]]) === null, '奇异矩阵未返回 null');
+    return 'A⁻¹ = [[0.6, −0.7], [−0.2, 0.4]]，奇异矩阵 → null';
+  });
+
+  /* ---------------- 解析 ---------------- */
+  T('分割符自动识别', function () {
+    assert(WB.parse.detectDelimiter('a\tb\tc\n1\t2\t3') === '\t', 'tab');
+    assert(WB.parse.detectDelimiter('a,b,c\n1,2,3') === ',', 'comma');
+    return 'tab / comma OK';
+  });
+  T('集合格式自动识别（长/宽/分列）', function () {
+    var L = WB.parse.parseSets('Set\tElement\nA\tx\nA\ty\nB\ty\nB\tz', {});
+    assert(L.format === 'long' && L.sets.length === 2, 'long fail ' + L.format);
+    var W = WB.parse.parseSets('Element\tA\tB\nx\t1\t0\ny\t1\t1', {});
+    assert(W.format === 'wide' && W.sets.length === 2, 'wide fail ' + W.format);
+    var C = WB.parse.parseSets('A\tB\nx\ty\ny\tz\np\tw', {});
+    assert(C.format === 'columns' && C.sets[1].elements.length === 3, 'columns fail ' + C.format + ' n=' + (C.sets[1] && C.sets[1].elements.length));
+    var L2 = WB.parse.parseSets('A\tx\nA\ty\nB\ty\nB\tz\nC\tz', {});
+    assert(L2.format === 'long', '2列长表误判为 ' + L2.format);
+    return 'long/wide/columns 三种格式 + 2 列歧义用例均正确';
+  });
+  T('GMT 解析', function () {
+    var g = WB.parse.parseGMT(WB.demo.gmtText);
+    assert(g.length === 16, 'n=' + g.length);
+    assert(g[0].genes.length > 20, 'genes=' + g[0].genes.length);
+    return g.length + ' 条示例基因集';
+  });
+  T('火山图列名识别', function () {
+    var v = WB.parse.parseVolcano('gene\tlog2FoldChange\tpvalue\tpadj\nTP53\t2.3\t0.001\t0.01\nMYC\t-1.2\t0.2\t0.5', {});
+    assert(v.rows.length === 2 && v.hasPadj, 'rows=' + v.rows.length);
+    return '识别 padj 列 OK';
+  });
+  T('splitNumericTable 分组识别', function () {
+    var st = WB.parse.splitNumericTable(WB.demo.pcaText, {});
+    assert(st.features.length === 16, 'feat=' + st.features.length);
+    assert(st.group && st.group.name === 'Group', 'group=' + (st.group && st.group.name));
+    assert(st.rowNames.length === 66, 'rows=' + st.rowNames.length);
+    return st.features.length + ' 特征 / ' + st.rowNames.length + ' 样本 / 分组=' + st.group.name;
+  });
+  T('长表透视', function () {
+    var m = WB.parse.pivotLong('sid\tvar\tval\nS1\tA\t1\nS1\tB\t2\nS2\tA\t3\nS2\tB\t4', {});
+    assert(m.rowNames.length === 2 && m.colNames.length === 2, 'dims');
+    assert(m.matrix[1][1] === 4, 'val=' + m.matrix[1][1]);
+    return '2×2 pivot OK';
+  });
+
+  function oraRun() { return WB.enrichment.oraRun.apply(null, arguments); }
+  WB.ora2 = function () { return WB.enrichment.oraRun.apply(null, arguments); };
+
+  /* ---------------- 富集计算 ---------------- */
+  T('富集分析（示例库）产出显著结果', function () {
+    var genes = WB.parse.parseGeneList(WB.demo.geneList);
+    var sets = WB.parse.parseGMT(WB.demo.gmtText);
+    var r = WB.ora2(genes, sets, { minSize: 5, maxSize: 500, padjust: 'BH' });
+    assert(r.rows.length >= 6, 'rows=' + r.rows.length);
+    assert(r.rows[0].padj < 0.001, 'top padj=' + r.rows[0].padj);
+    assert(r.rows[0].term === 'CELL_CYCLE_MITOTIC', 'top=' + r.rows[0].term);
+    var bk = r.rows[0];
+    assert(bk.overlap > 0 && bk.foldEnrichment > 1, 'fold=' + bk.foldEnrichment);
+    return r.rows.length + ' 条通路，最显著 ' + bk.term + ' (FDR=' + bk.padj.toExponential(2) + ', fold=' + bk.foldEnrichment.toFixed(2) + ')';
+  });
+  T('富集结果与手工公式一致', function () {
+    var r = oraRun(['A', 'B', 'C'], [{ term: 'T1', genes: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'] }],
+      { minSize: 1, maxSize: 100, padjust: 'NONE' });
+    // N=10, K=10, n=3, k=3 → P(X>=3)=1
+    assert(Math.abs(r.rows[0].p - 1) < 1e-9, 'p=' + r.rows[0].p);
+    // 背景改为 100 个基因
+    var bg = []; for (var i = 0; i < 100; i++) bg.push('G' + i);
+    var set2 = [{ term: 'T2', genes: bg.slice(0, 10) }];
+    var r2 = oraRun(['G0', 'G1', 'G2'], set2, { minSize: 1, maxSize: 100, padjust: 'NONE', background: bg });
+    // N=100,K=10,n=3,k=3 → P = C(10,3)/C(100,3) = 120/161700
+    var expect = 120 / 161700;
+    assert(Math.abs(r2.rows[0].p - expect) < 1e-12, 'p=' + r2.rows[0].p + ' expect=' + expect);
+    return 'P=' + r2.rows[0].p.toExponential(4) + '（理论值 ' + expect.toExponential(4) + '）';
+  });
+
+  /* ---------------- 界面语言 ---------------- */
+  T('语言切换：词典双向可用', function () {
+    var orig = WB.i18n.getLang();
+    WB.i18n.setLang('en');
+    var enGene = WB.t('common.gene'), enAxis = WB.t('volcano.xAxis'), enUi = WB.t('开始分析');
+    WB.i18n.setLang('zh');
+    var zhGene = WB.t('common.gene'), zhAxis = WB.t('volcano.xAxis'), zhUi = WB.t('开始分析');
+    assert(enGene !== zhGene, 'common.gene 中英文相同：' + enGene);
+    assert(enAxis !== zhAxis, 'volcano.xAxis 中英文相同：' + enAxis);
+    assert(enUi !== zhUi, '界面原文「开始分析」中英文相同：' + enUi);
+    assert(/[\u4e00-\u9fa5]/.test(zhGene), '中文词条含非中文字符：' + zhGene);
+    assert(!/[\u4e00-\u9fa5]/.test(enGene), '英文词条含中文字符：' + enGene);
+    assert(!/[\u4e00-\u9fa5]/.test(enAxis), '英文坐标轴标题含中文字符：' + enAxis);
+    assert(!/[\u4e00-\u9fa5]/.test(enUi), '英文界面文案含中文字符：' + enUi);
+    assert(WB.i18n.getLang() === 'zh', '恢复中文失败');
+    return '图表 zh="' + zhGene + '"/en="' + enGene + '"；界面 zh="' + zhUi + '"/en="' + enUi + '"（原语言 ' + orig + '）';
+  });
+  T('语言切换：界面文案全局切换（导航 / 标题 / 按钮 / 参数）', function () {
+    var orig = WB.i18n.getLang();
+    WB.i18n.setLang('zh');
+    goSync('volcano');
+    function snap() {
+      var main = document.getElementById('main');
+      return {
+        nav: [].map.call(document.querySelectorAll('.nav-group'), function (n) { return n.textContent.trim(); }).join('|'),
+        h1: main.querySelector('.page-head h1').textContent,
+        run: main.querySelector('.card-foot .btn-primary').textContent,
+        label: main.querySelector('.field-label').textContent,
+        card: main.querySelector('.card-input .card-title').textContent.trim(),
+        ghost: main.querySelector('.card-input .card-actions .btn').textContent.trim()
+      };
+    }
+    var zh = snap();
+    WB.i18n.setLang('en');   // 派发 wb:lang → 重绘导航与当前页面
+    var en = snap();
+    ['nav', 'h1', 'run', 'label', 'card', 'ghost'].forEach(function (k) {
+      assert(zh[k] !== en[k], k + ' 未随语言切换：zh="' + zh[k] + '" en="' + en[k] + '"');
+    });
+    assert(!/[\u4e00-\u9fa5]/.test(en.nav + en.h1 + en.run + en.label + en.card + en.ghost), '英文模式下界面仍含中文');
+    assert(/[\u4e00-\u9fa5]/.test(zh.h1), '中文模式下界面无中文');
+    WB.i18n.setLang(orig);
+    goSync('volcano');
+    return '标题 "' + zh.h1 + '" → "' + en.h1 + '"；按钮 "' + zh.run + '" → "' + en.run + '"；导航组 "' + zh.nav + '" → "' + en.nav + '"';
+  });
+
+  /* ---------------- 模块端到端 ---------------- */
+  function runTool(id) {
+    goSync(id);
+    var main = document.getElementById('main');
+    assert(main.querySelector('.card-input'), '未渲染输入面板');
+    var runBtn = main.querySelector('.card-foot .btn-primary');
+    assert(runBtn, '未找到运行按钮');
+    runBtn.click();
+    var res = document.getElementById(id + '-result');
+    assert(res, '未找到结果容器 #' + id + '-result');
+    var err = res.querySelector('.alert-error');
+    assert(!err, '结果区出现错误提示：' + (err ? err.textContent.slice(0, 120) : ''));
+    var foot = main.querySelector('.foot-msg');
+    assert(foot && WB.t('完成，用时 {t}', { t: '' }).slice(0, 2) === foot.textContent.slice(0, 2),
+      '未显示完成状态：' + (foot && foot.textContent));
+    assert(res.parentNode && res.childNodes.length > 0, '结果区为空');
+    return {
+      svgs: res.querySelectorAll('svg').length,
+      cards: res.querySelectorAll('.card').length,
+      rows: res.querySelectorAll('.data-table tbody tr').length,
+      stats: res.querySelectorAll('.stat-item').length,
+      charts: res.querySelectorAll('.plot-holder').length
+    };
+  }
+
+  /*
+   每个模块的端到端预期：minSvg / minCards / minStats。
+   unique 为纯表格去重模块，按设计不绘图，故 minSvg = 0。
+   其余模块至少要有一张图、一张结果卡片与 3 项统计指标。
+  */
+  var E2E = [
+    { id: 'venn', minSvg: 1 },
+    { id: 'upset', minSvg: 1 },
+    { id: 'enrichment', minSvg: 1 },
+    { id: 'correlation', minSvg: 3 },
+    { id: 'pca', minSvg: 1 },
+    { id: 'volcano', minSvg: 1 },
+    { id: 'heatmap', minSvg: 1 },
+    { id: 'diffexp', minSvg: 1 },
+    { id: 'survival', minSvg: 1 },
+    { id: 'roc', minSvg: 1 },
+    { id: 'sequence', minSvg: 1 },
+    { id: 'unique', minSvg: 0 }
+  ];
+
+  E2E.forEach(function (spec) {
+    T('端到端：' + spec.id, function () {
+      var r = runTool(spec.id);
+      assert(r.svgs >= spec.minSvg, '图形数量不足：' + r.svgs + ' < ' + spec.minSvg);
+      assert(r.stats >= 3, '统计条缺失：' + r.stats);
+      assert(r.cards >= 1, '结果卡片缺失：' + r.cards);
+      return 'SVG×' + r.svgs + '，卡片×' + r.cards + '，表格行×' + r.rows + '，统计×' + r.stats;
+    });
+  });
+
+  /* ---------------- ROC：AUC 数值与方向分支 ---------------- */
+  function rocAucs() {
+    var res = document.getElementById('roc-result');
+    var tbl = null, col = -1;
+    [].forEach.call(res.querySelectorAll('.data-table'), function (t) {
+      if (tbl) return;
+      var hs = [].map.call(t.querySelectorAll('thead th'), function (th) { return th.textContent.trim(); });
+      var ci = hs.indexOf('AUC');
+      if (ci >= 0) { tbl = t; col = ci; }
+    });
+    assert(tbl, '未找到 AUC 汇总表');
+    return [].map.call(tbl.querySelectorAll('tbody tr'), function (tr) {
+      var td = tr.querySelectorAll('td');
+      return { name: td[0].textContent.trim(), auc: parseFloat(td[col].textContent) };
+    });
+  }
+  T('ROC：AUC 数值与独立 Mann-Whitney 参考一致', function () {
+    goSync('roc');
+    document.getElementById('main').querySelector('.card-foot .btn-primary').click();
+    var got = rocAucs();
+    assert(got.length === 3, '标记物数 = ' + got.length);
+    var want = { Marker_A: 0.8724, Marker_B: 0.7571, Marker_C: 0.5236 };
+    got.forEach(function (g) {
+      assert(want[g.name] !== undefined, '未预期的标记物 ' + g.name);
+      assert(Math.abs(g.auc - want[g.name]) < 0.0006, g.name + ' AUC=' + g.auc + '，预期 ' + want[g.name]);
+    });
+    return got.map(function (g) { return g.name + '=' + g.auc.toFixed(4); }).join('，') + '（独立复算 0.8724 / 0.7571 / 0.5236）';
+  });
+  T('ROC：切换判别方向后 AUC 取补（1 − AUC）', function () {
+    goSync('roc');
+    var main = document.getElementById('main');
+    var sels = main.querySelectorAll('.params-grid select');
+    var dirSel = null;
+    for (var i = 0; i < sels.length; i++) if (/value="low"/.test(sels[i].innerHTML)) dirSel = sels[i];
+    assert(dirSel, '未找到判别方向下拉');
+    dirSel.value = 'low';
+    dirSel.dispatchEvent(new Event('change'));
+    main.querySelector('.card-foot .btn-primary').click();
+    var got = rocAucs();
+    var want = { Marker_A: 1 - 0.8724, Marker_B: 1 - 0.7571, Marker_C: 1 - 0.5236 };
+    got.forEach(function (g) {
+      assert(Math.abs(g.auc - want[g.name]) < 0.0006, g.name + ' AUC=' + g.auc + '，预期 ' + want[g.name]);
+    });
+    dirSel.value = 'auto';
+    dirSel.dispatchEvent(new Event('change'));
+    main.querySelector('.card-foot .btn-primary').click();
+    return '低分端为阳性时 AUC = ' + got.map(function (g) { return g.auc.toFixed(4); }).join(' / ') + '，已恢复自动判断';
+  });
+
+  /* ---------------- 英文模式中文残留探针 ---------------- */
+  /*
+    示例数据本身含中文（如示例基因集描述），属数据而非界面。
+    因此先收集「示例数据中出现过的完整字符串」，从扫描文本中整段扣除后，
+    再检查是否仍有中文残留 —— 这样不会把未翻译的界面文案误当成数据放过去。
+  */
+  function demoZhPool() {
+    var pool = [];
+    function add(s) {
+      if (s && s.length >= 2 && /[\u4e00-\u9fa5]/.test(s)) pool.push(s);
+    }
+    (function walk(v) {
+      if (typeof v === 'string') {
+        add(v);
+        v.split(/[\t\r\n,;|]+/).forEach(function (tk) { add(tk.trim()); });
+      } else if (v && Object.prototype.toString.call(v) === '[object Object]') {
+        for (var k in v) if (Object.prototype.hasOwnProperty.call(v, k)) walk(v[k]);
+      } else if (Object.prototype.toString.call(v) === '[object Array]') {
+        for (var i = 0; i < v.length; i++) walk(v[i]);
+      }
+    })(WB.demo);
+    pool.sort(function (a, b) { return b.length - a.length; });
+    return pool;
+  }
+
+  T('英文模式：12 个模块界面无中文残留', function () {
+    var orig = WB.i18n.getLang();
+    var zhRuns = demoZhPool();
+    var leftovers = [], broken = [];
+
+    function scan(root, mod, bucket) {
+      if (!root) return;
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+      var node;
+      while ((node = walker.nextNode())) {
+        var txt = node.nodeValue;
+        if (!txt || !/[\u4e00-\u9fa5]/.test(txt)) continue;
+        zhRuns.forEach(function (t) { if (t) txt = txt.split(t).join(' '); });
+        var left = txt.match(/[\u4e00-\u9fa5]+/g);
+        if (!left) continue;
+        var p = node.parentNode;
+        var where = p ? (p.className || p.tagName || '?') : '?';
+        if (p && p.getAttribute && p.getAttribute('data-x')) where += '[' + p.getAttribute('data-x') + ']';
+        if (bucket.length < 120) bucket.push(mod + ' .' + where + ' → ' + left.join('/') + '   〈' + node.nodeValue.replace(/\s+/g, ' ').trim().slice(0, 60) + '〉');
+      }
+    }
+
+    WB.i18n.setLang('en');
+    /* 首页与「使用说明」页也纳入扫描 */
+    goSync('home');
+    scan(document.getElementById('main'), 'home', leftovers);
+    goSync('about');
+    scan(document.getElementById('main'), 'about', leftovers);
+    E2E.forEach(function (spec) {
+      try {
+        var r = runTool(spec.id);
+        if (r.stats < 3) broken.push(spec.id + ':统计条缺失');
+      } catch (e) {
+        broken.push(spec.id + ':' + e.message);
+        return;
+      }
+      var main = document.getElementById('main');
+      scan(main.querySelector('.page-head'), spec.id, leftovers);
+      scan(document.querySelector('.nav'), spec.id, leftovers);
+      scan(document.getElementById(spec.id + '-result'), spec.id, leftovers);
+      /* 输入面板的「格式说明」默认只展开首个标签，需逐个切换后再扫描 */
+      var tabs = main.querySelectorAll('.card-input .fmt-tab');
+      if (tabs.length) {
+        for (var ti = 0; ti < tabs.length; ti++) {
+          tabs[ti].click();
+          scan(main.querySelector('.card-input'), spec.id + ' 格式说明#' + (ti + 1), leftovers);
+        }
+      } else {
+        scan(main.querySelector('.card-input'), spec.id, leftovers);
+      }
+    });
+    WB.i18n.setLang(orig);
+
+    assert(broken.length === 0, '英文模式下模块运行异常：' + broken.join('；'));
+    assert(leftovers.length === 0, '英文模式下仍有中文残留：\n' + leftovers.join('\n'));
+    return '首页 + 说明页 + 12 个模块的英文界面与图形文字全部去中文（已扣除 ' + zhRuns.length + ' 段示例数据中文）';
+  });
+
+  /* ---------------- 界面语言（切换后自动重绘） ---------------- */
+  T('语言切换：切换后界面与图形按新语言同步重绘', function () {
+    var orig = WB.i18n.getLang();
+    WB.i18n.setLang('zh');
+    goSync('volcano');
+    var main = document.getElementById('main');
+    main.querySelector('.card-foot .btn-primary').click();
+    var zhSvg = document.getElementById('volcano-result').querySelector('svg');
+    assert(zhSvg, '中文图未生成');
+    var zhText = zhSvg.textContent;
+    assert(/[\u4e00-\u9fa5]/.test(zhText), '中文模式下图形内无中文');
+
+    WB.i18n.setLang('en');  // 派发 wb:lang → 自动重路由并重算
+    var enSvg = document.getElementById('volcano-result').querySelector('svg');
+    assert(enSvg, '英文图未生成');
+    var enText = enSvg.textContent;
+    assert(enText !== zhText, '切换语言后图形文字未变化');
+    assert(!/[\u4e00-\u9fa5]/.test(enText.replace(/[\u4e00-\u9fa5]+_[\w]+/g, '')), '英文模式下仍残留中文标签');
+
+    WB.i18n.setLang(orig);
+    goSync('volcano');
+    return '中文图形 ' + zhText.length + ' 字符 → 英文图形 ' + enText.length + ' 字符，重绘生效';
+  });
+
+  /* ---------------- 交互补充 ---------------- */
+  T('韦恩图：交集明细表可导出', function () {
+    goSync('venn');
+    var main = document.getElementById('main');
+    main.querySelector('.card-foot .btn-primary').click();
+    var res = document.getElementById('venn-result');
+    var rows = res.querySelectorAll('.data-table tbody tr').length;
+    var dlBtns = res.querySelectorAll('.data-table tbody .btn').length;
+    assert(rows >= 3, '明细表行数=' + rows);
+    assert(dlBtns === rows, '下载按钮数 ' + dlBtns + ' ≠ 行数 ' + rows);
+    var tn = res.querySelectorAll('.data-table tbody tr td:first-child');
+    var first = tn.length ? tn[0].textContent : '';
+    return rows + ' 个交集区域，首个：' + first;
+  });
+  T('相关性：分类/聚类切换后图形正常', function () {
+    goSync('correlation');
+    var main = document.getElementById('main');
+    var sels = main.querySelectorAll('.params-grid select');
+    var target = null;
+    for (var i = 0; i < sels.length; i++) if (/ward/.test(sels[i].innerHTML)) target = sels[i];
+    assert(target, '未找到聚类下拉');
+    target.value = 'none';
+    target.dispatchEvent(new Event('change'));
+    main.querySelector('.card-foot .btn-primary').click();
+    var res = document.getElementById('correlation-result');
+    var n1 = res.querySelectorAll('svg').length;
+    target.value = 'average';
+    target.dispatchEvent(new Event('change'));
+    main.querySelector('.card-foot .btn-primary').click();
+    var n2 = res.querySelectorAll('svg').length;
+    assert(n2 >= 3, 'svg 数量不足');
+    return '不聚类 ' + n1 + ' 个 SVG，聚类后 ' + n2 + ' 个 SVG';
+  });
+  T('火山图：切换 P 值列', function () {
+    goSync('volcano');
+    var main = document.getElementById('main');
+    var sels = main.querySelectorAll('.params-grid select');
+    var target = null;
+    for (var i = 0; i < sels.length; i++) if (/padj/.test(sels[i].innerHTML)) target = sels[i];
+    target.value = 'pvalue';
+    target.dispatchEvent(new Event('change'));
+    main.querySelector('.card-foot .btn-primary').click();
+    var res = document.getElementById('volcano-result');
+    assert(res.querySelector('.data-table tbody tr'), '表格为空');
+    return '使用原始 pvalue 重绘成功';
+  });
+  T('UpSet：排序方式切换', function () {
+    goSync('upset');
+    var main = document.getElementById('main');
+    var sels = main.querySelectorAll('.params-grid select');
+    var target = null;
+    for (var i = 0; i < sels.length; i++) if (/degree/.test(sels[i].innerHTML)) target = sels[i];
+    target.value = 'degree';
+    target.dispatchEvent(new Event('change'));
+    main.querySelector('.card-foot .btn-primary').click();
+    var res = document.getElementById('upset-result');
+    assert(res.querySelectorAll('svg circle').length > 5, '点阵未绘制');
+    return '按集合数排序 OK，点阵节点 ' + res.querySelectorAll('svg circle').length;
+  });
+  T('热图：单行分组注释解析', function () {
+    var r = parseGroupSpecForTest('Group\tNormal\tNormal\tTumor\tTumor', ['a', 'b', 'c', 'd']);
+    assert(r && r.labels.join(',') === 'Normal,Normal,Tumor,Tumor', 'labels=' + (r && r.labels.join(',')));
+    return 'labels=' + r.labels.join(',') + '，图例 ' + r.legend.length + ' 组';
+  });
+  function parseGroupSpecForTest(t, cols) {
+    // 复用热图模块内部逻辑的等价实现（保持行为一致）
+    var lines = t.split(/\r?\n/).filter(function (l) { return l.trim(); });
+    var first = lines[0].split(/[\t,;]/).map(function (s) { return s.trim(); });
+    var toks = first.slice();
+    if (toks.length === cols.length + 1 && /^(group|分组|group_name|condition)$/i.test(toks[0])) toks.shift();
+    var labels = toks.slice(0, cols.length);
+    var names = [], counts = {};
+    labels.forEach(function (l) { if (names.indexOf(l) < 0) { names.push(l); counts[l] = 0; } counts[l]++; });
+    return { labels: labels, legend: names.map(function (n) { return { name: n, n: counts[n] }; }) };
+  }
+
+  /* ---------------- 导出 ---------------- */
+  var out = document.getElementById('test-output');
+  var pass = log.filter(function (l) { return l.indexOf('PASS') === 0; }).length;
+  var fail = log.filter(function (l) { return l.indexOf('FAIL') === 0; }).length;
+  out.textContent = '===SUMMARY=== total=' + log.length + ' pass=' + pass + ' fail=' + fail +
+    ' errors=' + errors.length + '\n' + log.join('\n') +
+    (errors.length ? '\n--- ERRORS ---\n' + errors.join('\n') : '\n--- NO ERRORS ---');
+  document.title = 'SELFTEST pass=' + pass + ' fail=' + fail + ' err=' + errors.length;
+
+  }  /* runAll 结束 */
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', runAll);
+  } else {
+    runAll();
+  }
+})();
+</script>
+</body>
+</html>

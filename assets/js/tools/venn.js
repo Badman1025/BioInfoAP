@@ -28,7 +28,7 @@
       'Suitable for pasting several gene lists side by side directly from Excel.',
 
     /* 工具注册信息（name/desc/tags，由核心层自动翻译） */
-    '韦恩图 / Venn': 'Venn diagram',
+    '韦恩图': 'Venn diagram',
     '2~4 个基因/元素集合的重叠关系，自动计算每个区域的交集，并可导出交集基因列表。':
       'Overlap among 2–4 gene/element sets, with automatic intersection counts per region and export of intersection gene lists.',
     '2-4 集合': '2–4 sets',
@@ -36,7 +36,6 @@
     'SVG 导出': 'SVG export',
 
     /* 页面标题 */
-    '韦恩图 / Venn 图': 'Venn diagram',
     '输入若干集合的成员列表，自动计算并绘制交集区域；支持每个文件作为一个集合。':
       'Enter the member lists of several sets; intersection regions are computed and drawn automatically. Each file can count as one set.',
 
@@ -71,7 +70,6 @@
     '出现在 ≥2 个集合': 'In ≥2 sets',
 
     /* 结果卡片与表格 */
-    '韦恩图': 'Venn diagram',
     '各集合成员数': 'Members per set',
     '交集明细（可导出基因列表）': 'Intersection details (gene lists exportable)',
     '交集区域': 'Intersection region',
@@ -324,14 +322,14 @@
 
   WB.register({
     id: 'venn',
-    name: '韦恩图 / Venn',
+    name: '韦恩图',
     icon: '◉',
     color: '#2f6fb3',
     desc: '2~4 个基因/元素集合的重叠关系，自动计算每个区域的交集，并可导出交集基因列表。',
     tags: ['2-4 集合', '交集明细', 'SVG 导出'],
     render: function (main) {
       main.appendChild(el('div.page-head', [
-        el('h1', { text: T('韦恩图 / Venn 图') }),
+        el('h1', { text: T('韦恩图') }),
         el('p', { text: T('输入若干集合的成员列表，自动计算并绘制交集区域；支持每个文件作为一个集合。') })
       ]));
 

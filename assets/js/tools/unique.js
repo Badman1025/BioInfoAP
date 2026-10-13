@@ -9,7 +9,6 @@
   /* ------------------------- 界面文案（中 → 英） -------------------------- */
   WB.i18n.regUI({
     /* 模块元信息 */
-    '去重与唯一化 / Deduplicate': 'Deduplicate / Uniquify',
     '去除重复行、按关键列去重、对重复条目聚合取值（如多个探针映射到同一基因时取均值），或提取某一列的唯一值列表。':
       'Remove duplicate rows, deduplicate by key columns, aggregate values of repeated entries (e.g. average multiple probes mapping to the same gene), or extract the unique values of a column.',
     '数据清洗': 'Data cleaning',
@@ -126,7 +125,7 @@
 
   WB.register({
     id: 'unique',
-    name: '去重与唯一化 / Deduplicate',
+    name: '去重与唯一化',
     icon: '⧉',
     color: '#7a5cd8',
     desc: '去除重复行、按关键列去重、对重复条目聚合取值（如多个探针映射到同一基因时取均值），或提取某一列的唯一值列表。',

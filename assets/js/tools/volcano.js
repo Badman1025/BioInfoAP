@@ -18,13 +18,11 @@
       '<code>pvalue/p.val</code> or <code>padj/FDR/qvalue</code>. If <code>padj</code> is present, the adjusted P value is preferred.',
     '只有基因名、log2FC、P 值三列时同样可用；若第一列不是基因名，工具会按行号自动编号。':
       'Works with just gene name, log2FC and P value; if the first column is not a gene name, rows are numbered automatically.',
-    '火山图 / Volcano': 'Volcano plot',
     '差异表达基因分布：log2FC 对 −log₁₀ P，自动标注显著上调/下调基因，可导出显著基因列表。':
       'Differential expression landscape: log2FC vs −log₁₀ P, with automatic labelling of significant up/down genes and export of the significant gene list.',
     '差异表达': 'Differential expression',
     '阈值标注': 'Threshold labels',
     '导出基因': 'Export genes',
-    '火山图 / Volcano plot': 'Volcano plot',
     '横轴为 log₂ 差异倍数，纵轴为 −log₁₀ P 值；可自定义阈值并标注 Top 基因。':
       'X axis is log₂ fold change, Y axis is −log₁₀ P; you can set custom thresholds and label the top genes.',
     '输入差异分析结果': 'Input differential results',
@@ -82,14 +80,14 @@
 
   WB.register({
     id: 'volcano',
-    name: '火山图 / Volcano',
+    name: '火山图',
     icon: '▲',
     color: '#d6483f',
     desc: '差异表达基因分布：log2FC 对 −log₁₀ P，自动标注显著上调/下调基因，可导出显著基因列表。',
     tags: ['差异表达', '阈值标注', '导出基因'],
     render: function (main) {
       main.appendChild(el('div.page-head', [
-        el('h1', { text: T('火山图 / Volcano plot') }),
+        el('h1', { text: T('火山图') }),
         el('p', { text: T('横轴为 log₂ 差异倍数，纵轴为 −log₁₀ P 值；可自定义阈值并标注 Top 基因。') })
       ]));
 

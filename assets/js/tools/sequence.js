@@ -12,7 +12,6 @@
   /* ------------------------- 界面文案（中 → 英） -------------------------- */
   WB.i18n.regUI({
     /* 模块本身 */
-    '序列与蛋白工具 / Sequence toolkit': 'Sequence toolkit',
     '序列与蛋白工具': 'Sequence toolkit',
     '核酸与蛋白序列分析：反向互补、GC 含量、碱基组成、六框翻译、ORF 查找、密码子使用、Tm；蛋白分子量与等电点。':
       'Nucleic-acid and protein sequence analysis: reverse complement, GC content, base composition, six-frame translation, ORF finding, codon usage and Tm; protein molecular weight and isoelectric point.',
@@ -218,7 +217,7 @@
 
   WB.register({
     id: 'sequence',
-    name: '序列与蛋白工具 / Sequence toolkit',
+    name: '序列与蛋白工具',
     icon: '≋',
     color: '#0f9b93',
     desc: '核酸与蛋白序列分析：反向互补、GC 含量、碱基组成、六框翻译、ORF 查找、密码子使用、Tm；蛋白分子量与等电点。',

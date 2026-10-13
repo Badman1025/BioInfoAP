@@ -11,7 +11,6 @@
   /* ------------------------- 界面文案（中 → 英） -------------------------- */
   WB.i18n.regUI({
     /* 模块元信息 */
-    '差异表达分析 / Differential expression': 'Differential expression',
     '按分组比较基因表达水平：两组用 Welch t 检验或 Wilcoxon 秩和检验，多组用单因素方差分析或 Kruskal-Wallis 检验；输出差异倍数、统计量、P 值与 FDR，并绘制分组箱线图。':
       'Compare gene expression across groups: Welch t-test or Wilcoxon rank-sum test for two groups, one-way ANOVA or Kruskal-Wallis test for multiple groups; reports fold change, test statistic, P value and FDR, with grouped box plots.',
     '差异表达': 'Differential expression',
@@ -33,7 +32,7 @@
     '两组比较': 'Two-group comparison',
 
     /* 页头 */
-    '差异表达分析 / Differential expression analysis': 'Differential expression analysis',
+    '差异表达分析': 'Differential expression analysis',
     '按分组比较基因表达：两组用 Welch t 检验 / Wilcoxon 秩和检验，多组用单因素方差分析 / Kruskal-Wallis 检验，结果包含差异倍数、P 值与 FDR。':
       'Compare gene expression between groups: Welch t-test / Wilcoxon rank-sum test for two groups, one-way ANOVA / Kruskal-Wallis test for multiple groups; results include fold change, P value and FDR.',
 
@@ -157,7 +156,7 @@
 
   WB.register({
     id: 'diffexp',
-    name: '差异表达分析 / Differential expression',
+    name: '差异表达分析',
     icon: '⇅',
     color: '#c8862a',
     desc: '按分组比较基因表达水平：两组用 Welch t 检验或 Wilcoxon 秩和检验，多组用单因素方差分析或 Kruskal-Wallis 检验；输出差异倍数、统计量、P 值与 FDR，并绘制分组箱线图。',
@@ -165,7 +164,7 @@
 
     render: function (main) {
       main.appendChild(el('div.page-head', [
-        el('h1', { text: T('差异表达分析 / Differential expression analysis') }),
+        el('h1', { text: T('差异表达分析') }),
         el('p', { text: T('按分组比较基因表达：两组用 Welch t 检验 / Wilcoxon 秩和检验，多组用单因素方差分析 / Kruskal-Wallis 检验，结果包含差异倍数、P 值与 FDR。') })
       ]));
 

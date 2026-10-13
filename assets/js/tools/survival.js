@@ -9,7 +9,7 @@
   /* ------------------------- 界面文案（中 → 英） -------------------------- */
   WB.i18n.regUI({
     /* 模块元信息 */
-    '生存分析 / Survival': 'Survival analysis',
+    '生存分析': 'Survival analysis',
     'Kaplan-Meier 生存曲线、log-rank 检验、中位生存期与风险表；可按已有分组比较，也可对连续变量按中位数自动分组。':
       'Kaplan-Meier survival curves, log-rank test, median survival and a number-at-risk table; compare by an existing group column or split a continuous variable at its median.',
     'Kaplan-Meier': 'Kaplan-Meier',
@@ -32,7 +32,7 @@
       'If there is no group column, leave “Group column” blank, or enter a numeric column name under “Continuous variable” and the tool will split groups at the median.',
 
     /* 页头 */
-    '生存分析 / Kaplan-Meier': 'Survival analysis (Kaplan-Meier)',
+    '生存分析（Kaplan-Meier）': 'Survival analysis (Kaplan-Meier)',
     '绘制 Kaplan-Meier 生存曲线，计算中位生存期并做 log-rank 检验，用于比较不同分组的生存差异。':
       'Draw Kaplan-Meier survival curves, compute median survival and run the log-rank test to compare survival between groups.',
 
@@ -147,7 +147,7 @@
 
   WB.register({
     id: 'survival',
-    name: '生存分析 / Survival',
+    name: '生存分析',
     icon: '⏱',
     color: '#2f8f5b',
     desc: 'Kaplan-Meier 生存曲线、log-rank 检验、中位生存期与风险表；可按已有分组比较，也可对连续变量按中位数自动分组。',
@@ -155,7 +155,7 @@
 
     render: function (main) {
       main.appendChild(el('div.page-head', [
-        el('h1', { text: T('生存分析 / Kaplan-Meier') }),
+        el('h1', { text: T('生存分析（Kaplan-Meier）') }),
         el('p', { text: T('绘制 Kaplan-Meier 生存曲线，计算中位生存期并做 log-rank 检验，用于比较不同分组的生存差异。') })
       ]));
 
