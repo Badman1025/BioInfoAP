@@ -232,7 +232,12 @@
   /** 各模块调用：WB.i18n.regUI({ '中文原文': 'English', ... }) */
   function regUI(map) {
     if (!map) return;
-    Object.keys(map).forEach(function (k) { UI_EN[k] = map[k]; });
+    Object.keys(map).forEach(function (k) {
+      var v = map[k];
+      /* 防御：多行词条误写成数组字面量（['...' + '...']）时按拼接字符串处理，
+         避免英文模式下 T() 返回数组、interpolate 对其调 split 抛错导致整个组件失效 */
+      UI_EN[k] = Array.isArray(v) ? v.join('') : v;
+    });
   }
 
   var LANG_KEY = 'wb_chart_lang';

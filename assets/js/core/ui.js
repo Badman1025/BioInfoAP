@@ -47,6 +47,7 @@
     '请先输入数据或加载示例数据': 'Please enter data or load the example data first',
     '需要先提供数据': 'Input data is required',
     '完成，用时 {t}': 'Completed in {t}',
+    '正在运行…': 'Running…',
     '出错：{msg}': 'Error: {msg}',
     '分析失败：{msg}': 'Analysis failed: {msg}'
   });
@@ -564,6 +565,7 @@
     var foot = el('div.card-foot');
     var runBtn = el('button.btn.btn-primary', { text: WB.t(cfg.runLabel || '开始分析') });
     var msgSpan = el('span.foot-msg');
+    var running = false;   /* 异步分析（onRun 返回 Promise）进行中的标志 */
     runBtn.addEventListener('click', function () {
       var ctx = collect();
       saveState();
@@ -573,19 +575,42 @@
         return;
       }
       msgSpan.textContent = '';
-      try {
-        var t0 = performance.now();
-        cfg.onRun(ctx);
+      if (running) return;
+      /* 同步分支完成后写提示；异步（返回 Promise）则由 settle 后统一处理 */
+      function succeed(t0) {
         var dt = performance.now() - t0;
         msgSpan.textContent = WB.t('完成，用时 {t}', { t: dt < 1000 ? dt.toFixed(0) + ' ms' : (dt / 1000).toFixed(2) + ' s' });
         // 记录本次运行，供「界面语言」切换后自动用新语言重绘
         WB._lastRunFn = function () { try { cfg.onRun(collect()); } catch (e2) { console.error(e2); } };
-      } catch (e) {
+      }
+      function failEvery(e) {
         console.error(e);
         msgSpan.textContent = WB.t('出错：{msg}', { msg: e.message });
         WB.toast(WB.t('分析失败：{msg}', { msg: e.message }), 'error', 5200);
         WB._lastRunFn = null;
       }
+      var t0 = performance.now();
+      var out;
+      try {
+        out = cfg.onRun(ctx);
+      } catch (e) { failEvery(e); return; }
+      if (out && typeof out.then === 'function') {
+        /* 异步分析（例如分析前需先联网获取注释库）：期间禁用按钮并显示运行态 */
+        running = true;
+        runBtn.disabled = true;
+        msgSpan.textContent = WB.t('正在运行…');
+        out.then(function () {
+          running = false;
+          runBtn.disabled = false;
+          succeed(t0);
+        }, function (e) {
+          running = false;
+          runBtn.disabled = false;
+          failEvery(e);
+        });
+        return;
+      }
+      succeed(t0);
     });
     foot.appendChild(runBtn);
     foot.appendChild(msgSpan);

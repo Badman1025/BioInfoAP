@@ -801,8 +801,8 @@
         x1: m.l, y1: sy(t), x2: W - m.r, y2: sy(t),
         stroke: WB.plot.GRID, 'shape-rendering': 'crispEdges'
       }));
-      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 3.5, WB.formatNum(t, 0),
-        { 'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 4, WB.formatNum(t, 0),
+        { 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
 
     var bw = band.bandwidth();
@@ -816,9 +816,9 @@
           (it.pct !== undefined ? '<br>' + T('占比') + WB.pick('：', ': ') + it.pct.toFixed(1) + '%' : '');
       });
       root.appendChild(WB.plot.txt(x + bw / 2, y - 5, String(it.value),
-        { 'text-anchor': 'middle', 'font-size': 10.5, fill: WB.plot.MUTED }));
+        { 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
       root.appendChild(WB.plot.txt(x + bw / 2, H - m.b + 15, it.label,
-        { 'text-anchor': 'middle', 'font-size': 11, fill: WB.plot.TEXT }));
+        { 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
 
     root.appendChild(S('line', {
@@ -827,7 +827,7 @@
     }));
     if (opts.xLabel) {
       root.appendChild(WB.plot.txt(m.l + (W - m.l - m.r) / 2, H - 14, opts.xLabel,
-        { 'text-anchor': 'middle', 'font-size': 11.5, fill: WB.plot.TEXT }));
+        { 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: WB.plot.TEXT }));
     }
     return canvas.svg;
   }
@@ -866,13 +866,13 @@
         x1: m.l, y1: sy(t), x2: W - m.r, y2: sy(t),
         stroke: t === 0 ? '#cfdae3' : WB.plot.GRID
       }));
-      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 3.5, WB.formatNum(t, 1),
-        { 'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 4, WB.formatNum(t, 1),
+        { 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
     sx.ticks(6).forEach(function (t) {
       if (t < 1 || t > seq.length) return;
-      root.appendChild(WB.plot.txt(sx(t), H - m.b + 16, String(Math.round(t)),
-        { 'text-anchor': 'middle', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      root.appendChild(WB.plot.txt(sx(t), H - m.b + 17, String(Math.round(t)),
+        { 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
 
     var dArea = 'M' + sx(xs[0]) + ',' + sy(0), dLine = '';

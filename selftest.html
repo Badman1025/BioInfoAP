@@ -40,6 +40,12 @@
 <script src="assets/js/tools/roc.js"></script>
 <script src="assets/js/tools/sequence.js"></script>
 <script src="assets/js/tools/unique.js"></script>
+<script src="assets/js/tools/network.js"></script>
+<script src="assets/js/tools/violin.js"></script>
+<script src="assets/js/tools/pie.js"></script>
+<script src="assets/js/tools/line.js"></script>
+<script src="assets/js/tools/scatter3d.js"></script>
+<script src="assets/js/tools/stattest.js"></script>
 <script src="assets/js/main.js"></script>
 <script>
 (function () {
@@ -222,6 +228,145 @@
     return 'A⁻¹ = [[0.6, −0.7], [−0.2, 0.4]]，奇异矩阵 → null';
   });
 
+  /* ---------------- 差异表达：数据尺度 ---------------- */
+  T('数据尺度识别（非负整数 → 计数；小数或负值 → log2）', function () {
+    var d = WB.diffexp.detectScale;
+    assert(d([[10, 20], [30, 40]]) === 'count', '整数矩阵被判为 ' + d([[10, 20], [30, 40]]));
+    assert(d([[7.1, 8.2], [9.3, 6.4]]) === 'log', '小数矩阵被判为 ' + d([[7.1, 8.2], [9.3, 6.4]]));
+    assert(d([[-1, 2], [3, 4]]) === 'log', '含负值被判为 ' + d([[-1, 2], [3, 4]]));
+    assert(d([[0, 1], [2, 18]]) === 'count', '含较多零值的小整数被判为 ' + d([[0, 1], [2, 18]]));
+    return '整数→count，小数/负值→log，零值较多→count';
+  });
+  T('计数矩阵：按样本文库大小归一化为 CPM 后取 log2(CPM+1)', function () {
+    var p = WB.diffexp.preprocessMatrix([[100, 200], [300, 200]], 'count');
+    // 两列之和都是 400 → 列1 基因1: 100/400×1e6；基因2: 300/400×1e6
+    assert(Math.abs(p.data[0][0] - Math.log2(250001)) < 1e-9, 'v=' + p.data[0][0]);
+    assert(Math.abs(p.data[1][0] - Math.log2(750001)) < 1e-9, 'v=' + p.data[1][0]);
+    assert(Math.abs(p.libRatio - 1) < 1e-12, 'libRatio=' + p.libRatio);
+    // 深度差 4 倍的两列：同一比例应得到相同 CPM
+    var q = WB.diffexp.preprocessMatrix([[100, 400]], 'count');
+    assert(Math.abs(q.data[0][0] - q.data[0][1]) < 1e-9, 'CPM 未校正测序深度：' + q.data[0][0] + ' vs ' + q.data[0][1]);
+    return 'log2(CPM+1) 正确，且深度差异被校正（' + q.data[0][0].toFixed(3) + ' = ' + q.data[0][1].toFixed(3) + '）';
+  });
+  T('原始信号强度：逐值取 log2(x+1)', function () {
+    var p = WB.diffexp.preprocessMatrix([[0, 3]], 'linear');
+    assert(p.data[0][0] === 0, 'log2(1)=' + p.data[0][0]);
+    assert(Math.abs(p.data[0][1] - 2) < 1e-12, 'log2(4)=' + p.data[0][1]);
+    return '0→0，3→2';
+  });
+  /* ---------------- 新增统计检验 ---------------- */
+  T('t 分布分位数：95% 临界值与统计表一致', function () {
+    var q = WB.stats.invTDist;
+    assert(Math.abs(q(10, 0.05) - 2.228139) < 1e-5, 'df=10 → ' + q(10, 0.05));
+    assert(Math.abs(q(5, 0.05) - 2.570582) < 1e-5, 'df=5 → ' + q(5, 0.05));
+    assert(Math.abs(q(20, 0.05) - 2.085963) < 1e-5, 'df=20 → ' + q(20, 0.05));
+    assert(Math.abs(q(1e8, 0.05) - 1.959964) < 1e-3, 'df=∞ → ' + q(1e8, 0.05));
+    return 't(10)=2.2281，t(5)=2.5706，t(20)=2.0860，t(∞)=1.9600';
+  });
+  T('线性回归：斜率、截距、R² 与 95% 置信带半宽', function () {
+    var m = WB.stats.linearRegression([1, 2, 3, 4, 5], [2, 4, 5, 4, 5]);
+    assert(Math.abs(m.slope - 0.6) < 1e-12, 'slope=' + m.slope);
+    assert(Math.abs(m.intercept - 2.2) < 1e-12, 'intercept=' + m.intercept);
+    assert(Math.abs(m.r2 - 0.6) < 1e-12, 'R²=' + m.r2);
+    assert(m.df === 3, 'df=' + m.df);
+    // 置信带在 x̄ 处最窄，预测带比置信带宽
+    assert(m.seFit(m.xMean) < m.seFit(1.5), '置信带未在 x̄ 处取最窄');
+    assert(m.sePred(3) > m.seFit(3), '预测带未宽于置信带');
+    var half = WB.stats.invTDist(m.df, 0.05) * m.seFit(1.5);
+    assert(half > 0 && isFinite(half), '置信带半宽=' + half);
+    return 'ŷ = 2.2 + 0.6x，R²=0.6，x=1.5 处 95% 置信带半宽 ' + half.toFixed(3);
+  });
+  T('配对 t 检验与 Wilcoxon 符号秩检验', function () {
+    var x = [1.83, 0.50, 1.62, 2.48, 1.68, 1.88, 1.55, 3.06, 1.30];
+    var y = [0.878, 0.647, 0.598, 2.05, 1.06, 1.29, 1.06, 3.14, 1.29];
+    var pt = WB.stats.pairedTTest(x, y);
+    assert(Math.abs(pt.t - 3.035472) < 1e-4, 't=' + pt.t);
+    assert(Math.abs(pt.p - 0.016177) < 1e-4, 'p=' + pt.p);
+    var ws = WB.stats.wilcoxonSignedRank(x, y);
+    assert(ws.Wp === 40, '正秩和 V=' + ws.Wp + '（R 给出 V = 40）');
+    assert(ws.p > 0.02 && ws.p < 0.06, 'Wilcoxon p=' + ws.p);
+    return '配对 t = 3.0355（p = 0.0162），Wilcoxon V = 40（p ≈ ' + ws.p.toFixed(4) + '）';
+  });
+  T('Shapiro-Wilk 与 D’Agostino-Pearson 正态性检验', function () {
+    var sw = WB.stats.shapiroWilk, dp = WB.stats.dagostinoPearson;
+    // 构造明显非正态数据：单调坍缩 + 强离群
+    var badly = [0.01, 0.12, 0.35, 0.71, 1.02, 1.55, 2.40, 3.80, 6.10, 12.5, 40.0];
+    var s2 = sw(badly), d2 = dp(badly);
+    assert(s2.W < 0.85, '非正态样本 W=' + s2.W);
+    assert(s2.p < 0.01, '非正态样本 SW p=' + s2.p);
+    assert(d2.p < 0.05, '非正态样本 K² p=' + d2.p);
+    // 对称且尾部适中的数据不应被判为非正态
+    var ok = [-1.6, -1.1, -0.7, -0.3, 0, 0.3, 0.7, 1.1, 1.6, -2.1, 2.1, 0.5, -0.5];
+    var s1 = sw(ok);
+    assert(s1.W > 0.9, '近正态样本 W=' + s1.W);
+    return 'W(非正态)=' + s2.W.toFixed(4) + ' p=' + s2.p.toExponential(2) +
+      '；W(近正态)=' + s1.W.toFixed(4);
+  });
+  T('Tukey HSD：学生化极差临界值与查表一致', function () {
+    var q = WB.stats.qTukey;
+    assert(Math.abs(q(0.05, 2, 1e8) - 2.7718) < 5e-3, 'k=2,df=∞ → ' + q(0.05, 2, 1e8));
+    assert(Math.abs(q(0.05, 3, 1e8) - 3.3145) < 5e-3, 'k=3,df=∞ → ' + q(0.05, 3, 1e8));
+    assert(Math.abs(q(0.05, 4, 1e8) - 3.6332) < 6e-3, 'k=4,df=∞ → ' + q(0.05, 4, 1e8));
+    assert(Math.abs(q(0.05, 3, 10) - 3.8768) < 1e-2, 'k=3,df=10 → ' + q(0.05, 3, 10));
+    var hsd = WB.stats.tukeyHSD([[1, 2, 3], [2, 3, 4], [8, 9, 10]]);
+    assert(hsd.length === 3, '两两组合数=' + hsd.length);
+    return 'q(3,∞)=3.3145，q(3,10)=3.8768；三组 Tukey HSD 共 ' + hsd.length + ' 个对比';
+  });
+  T('卡方独立性检验与 Fisher 精确检验', function () {
+    var c = WB.stats.chiSquareIndependence([[20, 30], [30, 20]], false);
+    assert(Math.abs(c.chi2 - 4) < 1e-12, 'chi2=' + c.chi2);
+    assert(Math.abs(c.p - 0.045500) < 1e-5, 'p=' + c.p);
+    var cy = WB.stats.chiSquareIndependence([[20, 30], [30, 20]], true);
+    assert(Math.abs(cy.chi2 - 3.24) < 1e-12, 'Yates chi2=' + cy.chi2);
+    var f1 = WB.stats.fisherExact(3, 1, 1, 3, 'two.sided');
+    assert(Math.abs(f1.p - 0.485714) < 1e-4, 'Fisher p=' + f1.p);
+    var f2 = WB.stats.fisherExact(4, 0, 0, 4, 'two.sided');
+    assert(Math.abs(f2.p - 0.028571) < 1e-4, 'Fisher p=' + f2.p);
+    return 'χ²=4.000（p=0.0455），Yates=3.240；Fisher 与 R 一致（0.4857 / 0.0286）';
+  });
+  T('重复测量 ANOVA 与 Friedman 检验', function () {
+    var r = WB.stats.rmAnova([[10, 12], [8, 11], [12, 13]]);
+    assert(Math.abs(r.F - 12) < 1e-9, 'F=' + r.F);
+    assert(Math.abs(r.ssCond - 6) < 1e-9 && Math.abs(r.ssSub - 9) < 1e-9 && Math.abs(r.ssErr - 1) < 1e-9,
+      'SS=' + [r.ssCond, r.ssSub, r.ssErr].join('/'));
+    assert(Math.abs(r.p - 0.0746) < 5e-3, 'p=' + r.p);
+    var f = WB.stats.friedmanTest([[6, 4, 3], [5, 3, 2], [4, 2, 1]]);
+    assert(f.chi2 > 0 && f.df === 2, 'Friedman chi2=' + f.chi2);
+    return 'F=12.000（p≈0.0746，SS 条件/受试/误差 = 6/9/1）；Friedman χ²=' + f.chi2.toFixed(3);
+  });
+  T('Levene / Bartlett 方差齐性检验', function () {
+    var g = [[1, 2, 3, 4, 5, 6], [1, 12, -6, 9, 2, 0], [2, 2, 3, 3, 2, 2]];
+    var lv = WB.stats.leveneTest(g, 'median');
+    var bt = WB.stats.bartlettTest(g);
+    assert(lv.p < 0.05, 'Levene p=' + lv.p);
+    assert(bt.p < 0.05, 'Bartlett p=' + bt.p);
+    var lv2 = WB.stats.leveneTest([[1, 2, 3, 4, 5], [2, 3, 4, 5, 6]], 'median');
+    assert(!isFinite(lv2.p) || lv2.p > 0.9, '等方差时 Levene p=' + lv2.p);
+    return '方差不齐时 Levene p=' + lv.p.toExponential(2) + '，Bartlett p=' + bt.p.toExponential(2);
+  });
+
+  /* ---------------- 网络图：解析与图结构 ---------------- */
+  T('网络图：边列表解析、度与连通分量', function () {
+    var raw = WB.network.parseEdgeList('Source\tTarget\tWeight\tType\n' +
+      'A\tB\t0.8\tpositive\nB\tC\t-0.6\tnegative\nD\tE\t0.5\tpositive');
+    var g = WB.network.buildGraph(raw, {}, 0);
+    assert(g.nodes.length === 5, '节点数=' + g.nodes.length);
+    assert(g.edges.length === 3, '连线数=' + g.edges.length);
+    var byId = {};
+    g.nodes.forEach(function (n) { byId[n.id] = n; });
+    assert(byId.B.deg === 2, 'B 的度=' + byId.B.deg);
+    assert(byId.A.deg === 1 && byId.E.deg === 1, 'A/E 的度=' + byId.A.deg + '/' + byId.E.deg);
+    assert(g.edges[1].sign === -1, 'B–C 类型应为负相关：' + g.edges[1].sign);
+    assert(WB.network.components(g.nodes, g.edges) === 2, '连通分量=' + WB.network.components(g.nodes, g.edges));
+    return '5 节点 / 3 连线，B 度=2，连通分量=2，负相关类型识别正确';
+  });
+  T('网络图：邻接矩阵只取上三角', function () {
+    var raw = WB.network.parseAdjacency('\tA\tB\tC\nA\t0\t0.5\t0.2\nB\t0.5\t0\t0.9\nC\t0.2\t0.9\t0');
+    assert(raw.names.join(',') === 'A,B,C', 'names=' + raw.names.join(','));
+    assert(raw.edges.length === 3, '连线数=' + raw.edges.length + '（重复的对称项应被去掉）');
+    return '3 节点 / 3 条无向边，对称项未重复计数';
+  });
+
   /* ---------------- 解析 ---------------- */
   T('分割符自动识别', function () {
     assert(WB.parse.detectDelimiter('a\tb\tc\n1\t2\t3') === '\t', 'tab');
@@ -292,6 +437,108 @@
     var expect = 120 / 161700;
     assert(Math.abs(r2.rows[0].p - expect) < 1e-12, 'p=' + r2.rows[0].p + ' expect=' + expect);
     return 'P=' + r2.rows[0].p.toExponential(4) + '（理论值 ' + expect.toExponential(4) + '）';
+  });
+
+  T('富集分析：基因符号大小写不敏感匹配 + 按物种规范大小写', function () {
+    var sets = [{ term: 'T1', genes: ['TP53', 'MKI67', 'CD8A', 'VIM', 'ACTB'] }];
+    /* 输入小写 / 首字母大写，都应命中全大写的库基因 */
+    var r = oraRun(['tp53', 'Mki67', 'CD8A'], sets, { minSize: 1, maxSize: 100, padjust: 'NONE', species: 'human' });
+    assert(r.stats.n === 3, 'human: 应匹配 3 个，实际 ' + r.stats.n);
+    assert(!r.stats.unmapped.length, 'human 未匹配：' + r.stats.unmapped.join(','));
+    assert(r.rows[0].overlapGenes.join(',') === 'TP53,MKI67,CD8A', 'human 交集基因应为规范大写：' + r.rows[0].overlapGenes.join(','));
+    /* 小鼠：库里是 Tp53 风格，输入任意写法都命中，输出首字母大写 */
+    var sets2 = [{ term: 'T2', genes: ['Tp53', 'Mki67', 'Cd8a', 'Vim', 'Actb'] }];
+    var r2 = oraRun(['TP53', 'mki67', 'CD8A'], sets2, { minSize: 1, maxSize: 100, padjust: 'NONE', species: 'mouse' });
+    assert(r2.stats.n === 3, 'mouse: 应匹配 3 个，实际 ' + r2.stats.n);
+    assert(r2.rows[0].overlapGenes.join(',') === 'Tp53,Mki67,Cd8a', 'mouse 交集基因应为首字母大写：' + r2.rows[0].overlapGenes.join(','));
+    /* 斑马鱼：全小写 */
+    var r3 = oraRun(['TP53'], [{ term: 'T3', genes: ['tp53', 'vim'] }], { minSize: 1, maxSize: 100, padjust: 'NONE', species: 'zebrafish' });
+    assert(r3.rows[0].overlapGenes.join(',') === 'tp53', 'zebrafish 应为小写：' + r3.rows[0].overlapGenes.join(','));
+    /* 带引号 / 空白也应被清理后匹配 */
+    var r4 = oraRun(['"TP53"', ' MKI67 '], sets, { minSize: 1, maxSize: 100, padjust: 'NONE', species: 'human' });
+    assert(r4.stats.n === 2, '引号/空白清理后应匹配 2 个，实际 ' + r4.stats.n);
+    return 'human TP53/MKI67/CD8A、mouse Tp53/Mki67/Cd8a、zebrafish tp53、引号与空白已清理';
+  });
+
+  T('富集分析：Enrichr 库名按物种筛选', function () {
+    var m = function (name, sp) { return WB.enrichment.libMatchesSpecies(name, sp); };
+    assert(m('KEGG_2021_Human', 'human'), 'KEGG_2021_Human 应属人');
+    assert(m('GO_Biological_Process_2023', 'human'), '无物种标记的 GO 库应按人源处理');
+    assert(!m('Mouse_Gene_Atlas', 'human'), 'Mouse_Gene_Atlas 不应归为人');
+    assert(!m('KEGG_2019_Mouse', 'human'), 'KEGG_2019_Mouse 不应归为人');
+    assert(m('KEGG_2019_Mouse', 'mouse'), 'KEGG_2019_Mouse 应属小鼠');
+    assert(m('MGI_Mammalian_Phenotype_Level_4_2024', 'mouse'), 'MGI_* 应属小鼠');
+    assert(!m('KEGG_2021_Human', 'mouse'), 'KEGG_2021_Human 不应归为小鼠');
+    /* 词元匹配：含 RAT 的无关词、驼峰连写的 Mouse 都不应判错 */
+    assert(!m('RNAseq_Automatic_GEO_Signature_Human', 'rat'), 'RAT 词边界误判');
+    assert(!m('Phosphatase_Substrates_from_DEPOD', 'rat'), 'Substrates 里的 rat 不应误判');
+    assert(!m('Jensen_DISEASES_Curated_2025', 'rat'), 'Curated 里的 rat 不应误判');
+    assert(m('KEGG_2019_Rat', 'rat'), 'KEGG_2019_Rat 应属大鼠');
+    assert(m('PerturbAtlas_MouseGenePerturbationSigs', 'mouse'), '驼峰连写的 Mouse 应属小鼠');
+    assert(m('JASPAR_PWM_Mouse_2025', 'mouse'), 'JASPAR_PWM_Mouse_2025 应属小鼠');
+    assert(m('WikiPathways_2024_Mouse', 'mouse'), 'WikiPathways_2024_Mouse 应属小鼠');
+    assert(m('ALL_LIBRARIES', 'other'), 'other 物种应放行全部库');
+    return 'human/mouse/rat 库名判定、词元边界与驼峰连写均正确';
+  });
+
+  T('富集分析：在线库自动取用流程（推荐库选中 + 运行前自动下载）', function () {
+    var pick = WB.enrichment.pickDefaultLibrary;
+    var need = WB.enrichment.needFetchOnline;
+    /* 1) 未指定时会选中该物种的推荐库，用户无需手动点「获取列表」 */
+    var libs = ['KEGG_2019_Mouse', 'Mouse_Gene_Atlas', 'GO_Biological_Process_2023', 'KEGG_2021_Human'];
+    assert(pick(libs, 'human') === 'GO_Biological_Process_2023', 'human 推荐库 = ' + pick(libs, 'human'));
+    assert(pick(libs, 'mouse') === 'KEGG_2019_Mouse', 'mouse 推荐库 = ' + pick(libs, 'mouse'));
+    /* 无推荐库时退回候选首项，空候选返回空串 */
+    assert(pick(['X_LIBRARY'], 'human') === 'X_LIBRARY', '无推荐库应退回首项');
+    assert(pick([], 'human') === '', '空候选应返回空串');
+    /* 2) 运行前是否需先下载：在线且未取过该库时为 true，取过或换库后为 true/false 语义正确 */
+    assert(!need({ mode: 'demo', libText: null, libName: '', libKey: null }), 'demo 模式不需要下载');
+    assert(!need({ mode: 'gmt', libText: null, libName: '', libKey: null }), 'gmt 模式不需要下载');
+    assert(need({ mode: 'online', libText: null, libName: 'GO_Biological_Process_2023', libKey: null }), '在线未取过应需下载');
+    assert(!need({ mode: 'online', libText: 'A\tb\nC\td', libName: 'GO_Biological_Process_2023', libKey: 'GO_Biological_Process_2023' }),
+      '同一库已取过不应重复下载');
+    assert(need({ mode: 'online', libText: 'A\tb', libName: 'KEGG_2021_Human', libKey: 'GO_Biological_Process_2023' }),
+      '换库后应重新下载');
+    return '推荐库 human=GO_Biological_Process_2023 / mouse=KEGG_2019_Mouse；换库后会自动重取';
+  });
+
+  T('富集分析：富集网络图交互（拖拽避让 / 悬停高亮 / 双击重置）', function () {
+    var div = document.createElement('div');
+    document.body.appendChild(div);
+    var mk = function (term, genes, k) {
+      return { term: term, description: term, overlap: k, setSize: 30, expected: 2,
+        p: 0.001, padj: 0.01, negLogP: 2, overlapGenes: genes };
+    };
+    var rows = [
+      mk('T_A', ['G1', 'G2', 'G3', 'G4'], 4),
+      mk('T_B', ['G1', 'G2', 'G3', 'G5'], 4),
+      mk('T_C', ['G6', 'G7', 'G8'], 3)
+    ];
+    var svg = WB.enrichment.drawEnrichMap(div, rows, { pCut: 0.05 });
+    assert(svg && /svg/i.test(svg.tagName), '应返回 svg');
+    var circles = div.querySelectorAll('circle[data-role=node]');
+    assert(circles.length === 3, '节点数应为 3，实际 ' + circles.length);
+    var c0 = circles[0];
+    var x0 = +c0.getAttribute('cx');
+    function ev(type, x, y) {
+      return new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+    }
+    /* 拖拽：jsdom 的 getBoundingClientRect 宽高为 0，走 viewBox 兜底坐标换算 */
+    c0.dispatchEvent(ev('pointerdown', 100, 100));
+    svg.dispatchEvent(ev('pointermove', 260, 160));
+    var x1 = +c0.getAttribute('cx');
+    assert(x1 !== x0, '拖拽后节点应移动：' + x0 + ' → ' + x1);
+    svg.dispatchEvent(ev('pointerup', 260, 160));
+    /* 悬停高亮：与 T_A 无连线的 T_C 应变淡，移开后恢复 */
+    c0.dispatchEvent(ev('pointerenter', 0, 0));
+    assert(+circles[2].getAttribute('fill-opacity') < 0.5, '无连线的节点悬停时应变淡');
+    c0.dispatchEvent(ev('pointerleave', 0, 0));
+    assert(+circles[2].getAttribute('fill-opacity') > 0.8, '移开后应恢复');
+    /* 双击空白处恢复初始布局 */
+    svg.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    assert(Math.abs(+c0.getAttribute('cx') - x0) < 0.5, '双击后应恢复初始位置');
+    div.parentNode.removeChild(div);
+    return '拖拽 ' + x0.toFixed(0) + '→' + x1.toFixed(0) + ' px；高亮/恢复/双击重置均正常';
   });
 
   /* ---------------- 界面语言 ---------------- */
@@ -381,7 +628,13 @@
     { id: 'survival', minSvg: 1 },
     { id: 'roc', minSvg: 1 },
     { id: 'sequence', minSvg: 1 },
-    { id: 'unique', minSvg: 0 }
+    { id: 'unique', minSvg: 0 },
+    { id: 'network', minSvg: 1 },
+    { id: 'violin', minSvg: 1 },
+    { id: 'pie', minSvg: 1 },
+    { id: 'line', minSvg: 1 },
+    { id: 'scatter3d', minSvg: 1 },
+    { id: 'stattest', minSvg: 1 }
   ];
 
   E2E.forEach(function (spec) {
@@ -392,6 +645,175 @@
       assert(r.cards >= 1, '结果卡片缺失：' + r.cards);
       return 'SVG×' + r.svgs + '，卡片×' + r.cards + '，表格行×' + r.rows + '，统计×' + r.stats;
     });
+  });
+
+  /* ---------------- 差异表达：多组矩阵只比较选定的两个分组（端到端） ---------------- */
+  T('差异表达：三组矩阵只比较选定的两个分组，其余样本被排除', function () {
+    goSync('diffexp');
+    var main = document.getElementById('main');
+    function v(a) { return a.join('\t'); }
+    var C = [5.0, 5.2, 4.9, 5.1], A = [6.5, 6.6, 6.4, 6.5], B = [8.5, 8.6, 8.4, 8.5];
+    var txt = 'Gene\tC1\tC2\tC3\tC4\tA1\tA2\tA3\tA4\tB1\tB2\tB3\tB4\n' +
+      'UP_72\t' + v(C) + '\t' + v(A) + '\t' + v(B) + '\n' +
+      'FLAT\t' + v([5.0, 5.1, 4.9, 5.0, 5.0, 5.1, 4.9, 5.0, 5.1, 5.0, 5.2, 4.9]);
+    var ann = 'Sample\tGroup\nC1\tControl\nC2\tControl\nC3\tControl\nC4\tControl\n' +
+      'A1\t24h\nA2\t24h\nA3\t24h\nA4\t24h\nB1\t72h\nB2\t72h\nB3\t72h\nB4\t72h';
+
+    var ta = main.querySelector('.paste-wrap textarea');
+    ta.value = txt; ta.dispatchEvent(new Event('input'));
+    var gta = main.querySelector('.extra-slot textarea');
+    gta.value = ann; gta.dispatchEvent(new Event('input'));
+    var fields = main.querySelectorAll('.params-grid input[type=text]');
+    fields[0].value = 'Control'; fields[0].dispatchEvent(new Event('input'));
+    fields[1].value = '72h'; fields[1].dispatchEvent(new Event('input'));
+    main.querySelector('.card-foot .btn-primary').click();
+
+    var res = document.getElementById('diffexp-result');
+    assert(!res.querySelector('.alert-error'), '结果区出现错误提示');
+    var heads = [].map.call(res.querySelectorAll('.data-table thead th'), function (th) {
+      return th.textContent.trim();
+    });
+    assert(heads.indexOf('Control 均值') >= 0 && heads.indexOf('72h 均值') >= 0, '表头=' + heads.join(' | '));
+    assert(heads.indexOf('24h 均值') < 0, '未参与比较的 24h 组仍出现在表中');
+
+    var got = {};
+    [].forEach.call(res.querySelectorAll('.data-table tbody tr'), function (tr) {
+      var td = tr.querySelectorAll('td');
+      got[td[1].textContent.trim()] = td[td.length - 1].textContent.trim();
+    });
+    assert(got.UP_72 === '上调', 'UP_72 → ' + got.UP_72);
+    assert(got.FLAT === '不显著', 'FLAT → ' + got.FLAT);
+    var stat = [].map.call(res.querySelectorAll('.stat-item'), function (n) {
+      return n.querySelector('.stat-value').textContent.trim() + '=' + n.querySelector('.stat-label').textContent.trim();
+    });
+    assert(stat.join(' ').indexOf('8=参与比较的样本数') >= 0, '参与比较的样本数不对：' + stat.join(' / '));
+    var alerts = [].map.call(res.querySelectorAll('.alert span:nth-child(2)'), function (n) { return n.textContent; });
+    assert(alerts.some(function (t) { return t.indexOf('本次仅比较其中两组') >= 0; }), '缺少「仅比较两组」的提示');
+    return '仅 Control(n=4) vs 72h(n=4)：样本 8 个，UP_72=上调，FLAT=不显著；24h 组已排除';
+  });
+
+  /* ---------------- 小提琴图：核密度与效应量 ---------------- */
+  T('小提琴图：核密度曲线积分为 1，Cohen’s d 与手算一致', function () {
+    var vals = [1.2, 2.4, 3.1, 4.0, 5.2, 6.3, 7.1, 8.4, 9.0, 10.2, 11.3, 12.1];
+    var grid = [], i;
+    for (i = 0; i <= 600; i++) grid.push(-10 + i * (36 / 600));
+    var k = WB.violin.kde(vals, grid, 1);
+    var area = 0, step = grid[1] - grid[0];
+    for (i = 1; i < grid.length; i++) area += (k.y[i] + k.y[i - 1]) / 2 * step;
+    assert(Math.abs(area - 1) < 0.01, '核密度积分 = ' + WB.formatNum(area, 4));
+
+    var a = [4, 5, 6, 7, 8], b = [6, 7, 8, 9, 10];
+    var d = WB.violin.cohensD(a, b);
+    /* 合并标准差 = 1.5811，均值差 = −2 → d = −1.2649 */
+    assert(Math.abs(d + 1.2649) < 1e-4, "Cohen's d = " + WB.formatNum(d, 6));
+    return '积分 = ' + WB.formatNum(area, 4) + '，带宽 = ' + WB.formatNum(k.bw, 4) + "，Cohen's d = " + WB.formatNum(d, 4);
+  });
+
+  /* ---------------- 折线图：长表解析与逐点汇总 ---------------- */
+  T('折线图：长表解析出系列、位置与重复，均值正确', function () {
+    var txt = 'Group\tTime\tValue\n' +
+      'A\t0\t1\nA\t0\t2\nA\t0\t3\n' +
+      'A\t6\t4\nA\t6\t5\nA\t6\t6\n' +
+      'B\t0\t7\nB\t0\t8\nB\t0\t9\n' +
+      'B\t6\t10\nB\t6\t11\nB\t6\t12';
+    var m = WB.parse.parseMatrix(txt, { rowNames: false });
+    var d = WB.line.buildSeries(m);
+    assert(d.series.length === 2, '系列数 = ' + d.series.length);
+    assert(d.xs.length === 2, '横轴取值数 = ' + d.xs.length);
+    assert(d.xIsNum === true, '横轴未按数值解析');
+    var nA = d.series[0].pts.map(function (p) { return p.length; });
+    assert(nA.join(',') === '3,3', '每个位置的重复数 = ' + nA.join(','));
+    var meanA0 = WB.stats.mean(d.series[0].pts[0]);
+    var meanB1 = WB.stats.mean(d.series[1].pts[1]);
+    assert(Math.abs(meanA0 - 2) < 1e-9, 'A@0 均值 = ' + meanA0);
+    assert(Math.abs(meanB1 - 11) < 1e-9, 'B@6 均值 = ' + meanB1);
+    return '2 系列 × 2 位置 × 3 重复；A@0=2，B@6=11';
+  });
+
+  T('折线图：平滑曲线路径经过全部数据点', function () {
+    var pts = [[0, 0], [10, 20], [20, 0], [30, 40]];
+    var d = WB.line.smoothPath(pts);
+    var seg = d.split(' C').length - 1;
+    assert(seg === 3, '贝塞尔段数 = ' + seg);
+    assert(d.indexOf('M0.00 0.00') === 0, '起点不对：' + d.slice(0, 20));
+    assert(d.indexOf('30.00 40.00') > 0, '终点未保留');
+    return '4 点 → 3 段三次贝塞尔，端点精确保留';
+  });
+
+  /* ---------------- 三维散点图：椭球主轴与方差的对应关系 ---------------- */
+  T('三维散点图：95% 置信椭球的半轴平方和 = 方差之和 × 7.815', function () {
+    var pts = [], i;
+    for (i = 0; i < 20; i++) {
+      pts.push({ id: 'p' + i, raw: [i, (i % 2) ? 1 : 0, i % 5], g: '' });
+    }
+    var e = WB.scatter3d.ellipsoid(pts);
+    assert(e, '椭球未生成');
+    var xs = pts.map(function (p) { return p.raw[0]; });
+    var ys = pts.map(function (p) { return p.raw[1]; });
+    var zs = pts.map(function (p) { return p.raw[2]; });
+    var trace = WB.stats.variance(xs) + WB.stats.variance(ys) + WB.stats.variance(zs);
+    var sum2 = e.axes[0] * e.axes[0] + e.axes[1] * e.axes[1] + e.axes[2] * e.axes[2];
+    assert(Math.abs(sum2 - trace * 7.814727903) < 1e-6, '半轴平方和 = ' + WB.formatNum(sum2, 6) + '，期望 ' + WB.formatNum(trace * 7.814727903, 6));
+    var hull = WB.scatter3d.convexHull([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5], [3, 3]]);
+    assert(hull.length === 4, '凸包顶点数 = ' + hull.length);
+    return '半轴 = ' + e.axes.map(function (a) { return WB.formatNum(a, 3); }).join(' / ') + '，体积 = ' + WB.formatNum(e.vol, 3);
+  });
+
+  /* ---------------- 统计检验：列联表与推荐逻辑 ---------------- */
+  T('统计检验：2×2 列联表卡方（含 Yates 校正）与 R 一致', function () {
+    var t = [[28, 12], [9, 31]];
+    var y = WB.stats.chiSquareIndependence(t, true);
+    assert(Math.abs(y.chi2 - 16.2916) < 5e-4, 'Yates 卡方 = ' + WB.formatNum(y.chi2, 6));
+    assert(Math.abs(y.p - 5.428e-5) < 5e-6, 'Yates P = ' + WB.pFormat(y.p));
+    var n = WB.stats.chiSquareIndependence(t, false);
+    assert(Math.abs(n.chi2 - 18.1522) < 5e-4, '未校正卡方 = ' + WB.formatNum(n.chi2, 6));
+    assert(Math.abs(n.p - 2.0325e-5) < 5e-6, '未校正 P = ' + WB.pFormat(n.p));
+    return 'Yates X²=16.2916 (P=5.43e-5)，未校正 X²=18.1522 (P=2.03e-5)';
+  });
+
+  T('统计检验：期望频数 = 行合计 × 列合计 / 总计', function () {
+    var t = [[28, 12], [9, 31]];
+    var e11 = WB.stattest.expected(t, 0, 0);
+    var e22 = WB.stattest.expected(t, 1, 1);
+    assert(Math.abs(e11 - 18.5) < 1e-9, 'E11 = ' + e11);
+    assert(Math.abs(e22 - 21.5) < 1e-9, 'E22 = ' + e22);
+    return 'E11=18.5，E22=21.5（N=80）';
+  });
+
+  T('统计检验：检验方法的自动推荐遵循「设计 + 正态性 + 方差齐性」', function () {
+    var g2 = [{ values: [1, 2, 3, 4, 5] }, { values: [2, 3, 4, 5, 6] }];
+    var g3 = [{ values: [1, 2, 3] }, { values: [2, 3, 4] }, { values: [3, 4, 5] }];
+    var g1 = [{ values: [1, 2, 3, 4] }];
+    function rec(gs, design, norm, hom) { return WB.stattest.recommend(gs, design, norm, hom); }
+    assert(rec(g1, 'independent', true, true) === 'oneSampleT', '单组 → ' + rec(g1, 'independent', true, true));
+    assert(rec(g2, 'independent', true, true) === 'studentT', '正态且方差齐 → ' + rec(g2, 'independent', true, true));
+    assert(rec(g2, 'independent', true, false) === 'welchT', '正态但方差不齐 → ' + rec(g2, 'independent', true, false));
+    assert(rec(g2, 'independent', false, true) === 'mannWhitney', '非正态 → ' + rec(g2, 'independent', false, true));
+    assert(rec(g2, 'paired', true, true) === 'pairedT', '配对正态 → ' + rec(g2, 'paired', true, true));
+    assert(rec(g2, 'paired', false, true) === 'wilcoxonSigned', '配对非正态 → ' + rec(g2, 'paired', false, true));
+    assert(rec(g3, 'independent', true, true) === 'anova', '多组正态 → ' + rec(g3, 'independent', true, true));
+    assert(rec(g3, 'independent', false, true) === 'kruskal', '多组非正态 → ' + rec(g3, 'independent', false, true));
+    assert(rec(g3, 'paired', true, true) === 'rmAnova', '重复测量正态 → ' + rec(g3, 'paired', true, true));
+    assert(rec(g3, 'paired', false, true) === 'friedman', '重复测量非正态 → ' + rec(g3, 'paired', false, true));
+    return '单组 / 两组独立 / 两组配对 / 多组独立 / 重复测量共 10 条分支全部命中';
+  });
+
+  T('端到端：统计检验按重复测量设计自动给出 RM ANOVA 与事后比较', function () {
+    goSync('stattest');
+    var main = document.getElementById('main');
+    main.querySelector('.card-foot .btn-primary').click();
+    var res = document.getElementById('stattest-result');
+    assert(!res.querySelector('.alert-error'), '结果区出现错误提示');
+    var txt = res.textContent;
+    assert(txt.indexOf('重复测量方差分析') >= 0, '未选择重复测量方差分析');
+    assert(txt.indexOf('η²') >= 0, '未给出效应量');
+    var post = 0;
+    [].forEach.call(res.querySelectorAll('.data-table'), function (t) {
+      var hs = [].map.call(t.querySelectorAll('thead th'), function (th) { return th.textContent.trim(); });
+      if (hs.indexOf('padj') >= 0) post = t.querySelectorAll('tbody tr').length;
+    });
+    assert(post === 3, '事后比较行数 = ' + post + '（3 组应为 3 对）');
+    return '3 组 × 10 受试者：RM ANOVA + 3 组成对比较（BH）';
   });
 
   /* ---------------- ROC：AUC 数值与方向分支 ---------------- */
@@ -468,7 +890,7 @@
     return pool;
   }
 
-  T('英文模式：12 个模块界面无中文残留', function () {
+  T('英文模式：18 个模块界面无中文残留', function () {
     var orig = WB.i18n.getLang();
     var zhRuns = demoZhPool();
     var leftovers = [], broken = [];
@@ -523,7 +945,7 @@
 
     assert(broken.length === 0, '英文模式下模块运行异常：' + broken.join('；'));
     assert(leftovers.length === 0, '英文模式下仍有中文残留：\n' + leftovers.join('\n'));
-    return '首页 + 说明页 + 12 个模块的英文界面与图形文字全部去中文（已扣除 ' + zhRuns.length + ' 段示例数据中文）';
+    return '首页 + 说明页 + 18 个模块的英文界面与图形文字全部去中文（已扣除 ' + zhRuns.length + ' 段示例数据中文）';
   });
 
   /* ---------------- 界面语言（切换后自动重绘） ---------------- */

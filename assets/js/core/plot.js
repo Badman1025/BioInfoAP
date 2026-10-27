@@ -18,6 +18,7 @@
     '冷暖 (CoolWarm)': 'Cool–Warm (CoolWarm)',
     '导出矢量图': 'Export vector graphic',
     '导出位图（2×）': 'Export bitmap (2×)',
+    '导出文件名（可修改，SVG 与 PNG 共用）': 'Export file name (editable; shared by SVG and PNG)',
     '暂无结果': 'No results',
     '没有可绘制的数据': 'No data to plot'
   });
@@ -55,6 +56,8 @@
   var FONT = '"Helvetica Neue", Helvetica, "PingFang SC", "Microsoft YaHei", Arial, sans-serif';
   var TEXT = '#22303c';
   var MUTED = '#6b7c8a';
+  /** 轴刻度文字色：接近墨色，配合 600 字重，导出后仍然清晰（用户反馈浅灰小字看不清） */
+  var TICKTEXT = '#222d37';
   var AXIS = '#b6c2cc';
   var GRID = '#eaeff3';
 
@@ -264,18 +267,36 @@
   /* --------------------------- 图表导出工具条 ----------------------------- */
 
   /**
-   * 在容器顶部插入「导出 SVG / PNG / 数据」按钮条
+   * 在容器顶部插入「导出 SVG / PNG / 数据」按钮条。
+   * 文件名取自工具条上的输入框（默认「图类型名_时间戳」，可编辑）；
+   * 其余自定义按钮可通过返回值 bar.fileName(ext) 复用同一文件名。
    */
   function addToolbar(container, cfg) {
     var bar = WB.el('div.plot-toolbar');
     if (cfg.getSvg) {
+      var nameInput = WB.el('input.plot-toolbar-name', {
+        type: 'text', value: (cfg.basename || 'plot') + '_' + exportStamp(),
+        title: WB.t('导出文件名（可修改，SVG 与 PNG 共用）'),
+        'aria-label': WB.t('导出文件名（可修改，SVG 与 PNG 共用）'),
+        spellcheck: 'false'
+      });
+      /** 以输入框内容命名：去除扩展名与文件系统非法字符，超长截断 */
+      var fname = function (ext) {
+        var v = String(nameInput.value || '').trim()
+          .replace(/[\\/:*?"<>|#%&{}$!`'@+=\s]+/g, '_')
+          .replace(/\.(svg|png|pdf|jpe?g)$/i, '');
+        if (v.length > 96) v = v.slice(0, 96);
+        return (v || 'plot') + ext;
+      };
+      bar.fileName = fname;
+      bar.appendChild(nameInput);
       bar.appendChild(WB.el('button.btn.btn-ghost.btn-xs', {
         text: 'SVG', title: WB.t('导出矢量图'),
-        onclick: function () { WB.downloadSVG(cfg.getSvg(), (cfg.basename || 'plot') + '.svg'); }
+        onclick: function () { WB.downloadSVG(cfg.getSvg(), fname('.svg')); }
       }));
       bar.appendChild(WB.el('button.btn.btn-ghost.btn-xs', {
         text: 'PNG', title: WB.t('导出位图（2×）'),
-        onclick: function () { WB.downloadPNG(cfg.getSvg(), (cfg.basename || 'plot') + '.png', cfg.scale || 2); }
+        onclick: function () { WB.downloadPNG(cfg.getSvg(), fname('.png'), cfg.scale || 2); }
       }));
     }
     (cfg.buttons || []).forEach(function (b) {
@@ -285,11 +306,44 @@
     return bar;
   }
 
+  /** 导出文件名默认后缀（本地时间，形如 20261027_093715），保证多次导出互不覆盖 */
+  function exportStamp() {
+    var d = new Date();
+    function p2(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + '_' +
+      p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
+  }
+
   /* ---------------------------- 文本换行 --------------------------------- */
 
   function ellipsis(str, max) {
     str = String(str);
     return str.length > max ? str.slice(0, Math.max(1, max - 1)) + '…' : str;
+  }
+
+  /** 估算字符串像素宽（中文/全角按 1em，大写与数字 0.66em，窄标点 0.32em，其余 0.54em） */
+  function textW(str, fs) {
+    fs = fs || 12;
+    str = String(str);
+    var w = 0;
+    for (var i = 0; i < str.length; i++) {
+      var ch = str[i];
+      if (/[\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef]/.test(ch)) w += fs;
+      else if (/[MWmw@%&]/.test(ch)) w += fs * 0.85;
+      else if (/[A-Z0-9]/.test(ch)) w += fs * 0.66;
+      else if (/[iljI|.,'`:;!\[\]()]/.test(ch)) w += fs * 0.32;
+      else w += fs * 0.54;
+    }
+    return w;
+  }
+
+  /** 按像素预算截断（超预算时收缩并加省略号；预算内原样返回） */
+  function truncateW(str, maxPx, fs) {
+    str = String(str);
+    if (!(maxPx > 0) || textW(str, fs) <= maxPx) return str;
+    var out = str;
+    while (out.length > 1 && textW(out + '…', fs) > maxPx) out = out.slice(0, -1);
+    return out + '…';
   }
   /** 依据字符宽度近似换行（中文按 2 计） */
   function wrapText(str, maxUnits, maxLines) {
@@ -444,15 +498,16 @@
     var f = ramp(cfg.ramp || 'rdbu');
     var tOf = function (v) { return (v - vmin) / ((vmax - vmin) || 1); };
 
-    // 标签宽度
+    // 标签宽度（估宽系数与截断阈值一致，保证最长标签不被省略）
     var rowLabelOf = cfg.rowLabelOf || function (i, name) { return { text: name }; };
     var colLabelOf = cfg.colLabelOf || function (j, name) { return { text: name }; };
+    var ROW_CHAR_W = 7.4;   /* 行标签字号上限 12px 时的单字符估宽（大写字母 + 数字） */
     var maxRowLabelUnits = 0;
     rowOrder.forEach(function (i) {
       var t = rowLabelOf(i, cfg.rowNames ? cfg.rowNames[i] : '') || {};
       maxRowLabelUnits = Math.max(maxRowLabelUnits, String(t.text || '').replace(/[\u4e00-\u9fa5]/g, 'xx').length);
     });
-    var rowLabelW = cfg.showRowLabels === false ? 0 : clamp(8 + maxRowLabelUnits * 6.1, 34, 190);
+    var rowLabelW = cfg.showRowLabels === false ? 0 : clamp(8 + maxRowLabelUnits * ROW_CHAR_W, 36, 360);
     var rotateColLabels = cfg.rotateColLabels !== false && (nCol > 1 || nRow > 1);
 
     var leftDendroW = cfg.showRowDendro && cfg.rowTree ? 66 : 0;
@@ -533,7 +588,7 @@
         var i2 = rowOrder[ri2];
         var rl = rowLabelOf(i2, cfg.rowNames ? cfg.rowNames[i2] : '') || {};
         var tEl2 = txt(rowLabelW + rowBarW + leftDendroW - 8, offY + ri2 * cellH + cellH / 2 + 3.6,
-          ellipsis(rl.text, Math.floor((rowLabelW - 12) / 6.1)), {
+          ellipsis(rl.text, Math.max(2, Math.floor((rowLabelW - 8) / ROW_CHAR_W))), {
           'text-anchor': 'end', 'font-size': clamp(cellH * 0.62, 9, 12), fill: rl.color || TEXT
         });
         if (cfg.rowTooltip) bindTip(tEl2, (function (ii) { return function () { return cfg.rowTooltip(ii); }; })(i2));
@@ -617,14 +672,14 @@
 
   WB.plot = {
     s: s, g: g, txt: txt, SVGNS: SVGNS,
-    FONT: FONT, TEXT: TEXT, MUTED: MUTED, AXIS: AXIS, GRID: GRID,
+    FONT: FONT, TEXT: TEXT, MUTED: MUTED, TICKTEXT: TICKTEXT, AXIS: AXIS, GRID: GRID,
     PALETTE: PALETTE, palette: palette, RAMPS: RAMPS, RAMP_LABELS: RAMP_LABELS,
     ramp: ramp, rampColors: rampColors, hex2rgb: hex2rgb, rgb2hex: rgb2hex, lum: lum,
     linearScale: linearScale, bandScale: bandScale,
     createSVG: createSVG, axisBottom: axisBottom, axisLeft: axisLeft, gridX: gridX, gridY: gridY,
     tipShow: tipShow, tipMove: tipMove, tipHide: tipHide, bindTip: bindTip,
     legendCategorical: legendCategorical, legendContinuous: legendContinuous,
-    addToolbar: addToolbar, ellipsis: ellipsis, wrapText: wrapText, emptyState: emptyState,
+    addToolbar: addToolbar, ellipsis: ellipsis, textW: textW, truncateW: truncateW, wrapText: wrapText, emptyState: emptyState,
     dendrogram: dendrogram, matrixHeatmap: matrixHeatmap, sigStar: sigStar
   };
 })(window);

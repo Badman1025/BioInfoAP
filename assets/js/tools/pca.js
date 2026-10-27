@@ -90,7 +90,7 @@
   /* --------------------------- 分组置信椭圆 ------------------------------ */
 
   function confEllipse(pts, level) {
-    // pts: [{x,y}] ; 返回 path d（95% 置信，卡方 2 自由度）
+    // pts: [{x,y}] ; 返回椭圆的采样点（95% 置信，卡方 2 自由度）
     var n = pts.length;
     if (n < 3) return null;
     var mx = 0, my = 0;
@@ -108,16 +108,16 @@
     var angle = 0.5 * Math.atan2(2 * b, a - c);
     var chi2 = level === 0.9 ? 4.605 : 5.991;
     var r1 = Math.sqrt(l1 * chi2), r2 = Math.sqrt(l2 * chi2);
-    var d = '';
+    var poly = [];
     for (var i = 0; i <= 60; i++) {
       var th = 2 * Math.PI * i / 60;
       var ex = r1 * Math.cos(th), ey = r2 * Math.sin(th);
-      var px = mx + ex * Math.cos(angle) - ey * Math.sin(angle);
-      var py = my + ex * Math.sin(angle) + ey * Math.cos(angle);
-      d += (i === 0 ? 'M' : 'L') + px.toFixed(2) + ',' + py.toFixed(2);
+      poly.push({
+        x: mx + ex * Math.cos(angle) - ey * Math.sin(angle),
+        y: my + ex * Math.sin(angle) + ey * Math.cos(angle)
+      });
     }
-    d += 'Z';
-    return d;
+    return poly;
   }
 
   /* ------------------------------ 模块 ---------------------------------- */
@@ -319,8 +319,8 @@
     y1.ticks(5).forEach(function (t) {
       if (t < 0 || t > y1.domain()[1]) return;
       root.appendChild(S('line', { x1: m.l, y1: y1(t), x2: W - m.r, y2: y1(t), stroke: WB.plot.GRID }));
-      root.appendChild(WB.plot.txt(m.l - 8, y1(t) + 3.5, (t * 100).toFixed(0) + '%', {
-        'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.MUTED
+      root.appendChild(WB.plot.txt(m.l - 8, y1(t) + 4, (t * 100).toFixed(0) + '%', {
+        'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT
       }));
     });
 
@@ -336,10 +336,10 @@
         return '<b>PC' + (i + 1) + '</b><br>' + lb('common.explainedVar', (v * 100).toFixed(2) + '%');
       });
       root.appendChild(WB.plot.txt(x + bw / 2, y - 5, (v * 100).toFixed(1) + '%', {
-        'text-anchor': 'middle', 'font-size': 10.5, fill: WB.plot.MUTED
+        'text-anchor': 'middle', 'font-size': 11, 'font-weight': 600, fill: WB.plot.TICKTEXT
       }));
-      root.appendChild(WB.plot.txt(x + bw / 2, H - m.b + 16, 'PC' + (i + 1), {
-        'text-anchor': 'middle', 'font-size': 11, fill: WB.plot.TEXT
+      root.appendChild(WB.plot.txt(x + bw / 2, H - m.b + 18, 'PC' + (i + 1), {
+        'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT
       }));
     });
 
@@ -370,7 +370,7 @@
     root.appendChild(WB.plot.txt(W - m.r + 8, H - m.b, '0%', { 'font-size': 10, fill: WB.plot.MUTED }));
 
     root.appendChild(WB.plot.txt(m.l + (W - m.l - m.r) / 2, H - 16, T('pca.component'), {
-      'text-anchor': 'middle', 'font-size': 12, fill: WB.plot.TEXT
+      'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT
     }));
     root.appendChild(WB.plot.txt(m.l + (W - m.l - m.r) / 2, 14, T('pca.screeNote'), {
       'text-anchor': 'middle', 'font-size': 11, fill: WB.plot.MUTED
@@ -385,37 +385,55 @@
     var W = 620, H = 480, m = { l: 62, r: 26, t: 26, b: 56 };
     var canvas = WB.plot.createSVG(container, W, H, {});
     var root = canvas.root;
-    var xr = extentSymmetric(pts.map(function (p) { return p.x; }));
-    var yr = extentSymmetric(pts.map(function (p) { return p.y; }));
+
+    /* 先在数据坐标下算出各分组置信椭圆的采样点，并把它们并入坐标范围，
+       保证椭圆完整落在绘图框内（再由 extentSymmetric 的 1.08 系数留出边距） */
+    var showEll = cfg.groupNames && cfg.groupNames.length && cfg.ellipse;
+    var ellPolys = [];
+    if (showEll) {
+      cfg.groupNames.forEach(function (g) {
+        var gp = pts.filter(function (p) { return cfg.groups[p.i] === g; });
+        var poly = confEllipse(gp, 0.95);
+        if (poly) ellPolys.push(poly);
+      });
+    }
+    var xVals = pts.map(function (p) { return p.x; });
+    var yVals = pts.map(function (p) { return p.y; });
+    ellPolys.forEach(function (poly) {
+      poly.forEach(function (q) { xVals.push(q.x); yVals.push(q.y); });
+    });
+    var xr = extentSymmetric(xVals);
+    var yr = extentSymmetric(yVals);
     var sx = WB.plot.linearScale(xr[0], xr[1], m.l, W - m.r);
     var sy = WB.plot.linearScale(yr[0], yr[1], H - m.b, m.t);
 
     sx.ticks(6).forEach(function (t) {
       if (t < xr[0] || t > xr[1]) return;
       root.appendChild(S('line', { x1: sx(t), y1: m.t, x2: sx(t), y2: H - m.b, stroke: WB.plot.GRID }));
-      if (t !== 0) root.appendChild(WB.plot.txt(sx(t), H - m.b + 16, WB.formatNum(t, 2), { 'text-anchor': 'middle', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      if (t !== 0) root.appendChild(WB.plot.txt(sx(t), H - m.b + 18, WB.formatNum(t, 2), { 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
     sy.ticks(6).forEach(function (t) {
       if (t < yr[0] || t > yr[1]) return;
       root.appendChild(S('line', { x1: m.l, y1: sy(t), x2: W - m.r, y2: sy(t), stroke: WB.plot.GRID }));
-      if (t !== 0) root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 3.5, WB.formatNum(t, 2), { 'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      if (t !== 0) root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 4, WB.formatNum(t, 2), { 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
     // 零轴
     if (xr[0] < 0 && xr[1] > 0) root.appendChild(S('line', { x1: sx(0), y1: m.t, x2: sx(0), y2: H - m.b, stroke: '#cfdae3', 'stroke-dasharray': '4 3' }));
     if (yr[0] < 0 && yr[1] > 0) root.appendChild(S('line', { x1: m.l, y1: sy(0), x2: W - m.r, y2: sy(0), stroke: '#cfdae3', 'stroke-dasharray': '4 3' }));
     root.appendChild(S('rect', { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: 'none', stroke: WB.plot.AXIS }));
 
-    // 分组椭圆
-    if (cfg.groupNames && cfg.groupNames.length && cfg.ellipse) {
-      cfg.groupNames.forEach(function (g, gi) {
-        var gp = pts.filter(function (p) { return cfg.groups[p.i] === g; }).map(function (p) { return { x: sx(p.x), y: sy(p.y) }; });
-        var d = confEllipse(gp, 0.95);
-        if (d) {
-          root.appendChild(S('path', {
-            d: d, fill: cfg.groupNames.length === 1 ? '#2f6fb3' : WB.plot.palette(gi),
-            'fill-opacity': 0.11, stroke: WB.plot.palette(gi), 'stroke-width': 1.2, 'stroke-opacity': 0.75
-          }));
-        }
+    // 分组椭圆（按数据坐标采样点映射到屏幕坐标）
+    if (showEll) {
+      ellPolys.forEach(function (poly, gi) {
+        var d = '';
+        poly.forEach(function (q, k) {
+          d += (k === 0 ? 'M' : 'L') + sx(q.x).toFixed(2) + ',' + sy(q.y).toFixed(2);
+        });
+        d += 'Z';
+        root.appendChild(S('path', {
+          d: d, fill: cfg.groupNames.length === 1 ? '#2f6fb3' : WB.plot.palette(gi),
+          'fill-opacity': 0.11, stroke: WB.plot.palette(gi), 'stroke-width': 1.2, 'stroke-opacity': 0.75
+        }));
       });
     }
 
@@ -461,11 +479,11 @@
     });
 
     root.appendChild(WB.plot.txt(m.l + (W - m.l - m.r) / 2, H - 20,
-      T('pca.pcAxis', { n: 1, v: (pr.explained[0] * 100).toFixed(1) }), { 'text-anchor': 'middle', 'font-size': 12, fill: WB.plot.TEXT }));
+      T('pca.pcAxis', { n: 1, v: (pr.explained[0] * 100).toFixed(1) }), { 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT }));
     var yl = WB.plot.txt(0, 0, T('pca.pcAxis', { n: 2, v: (pr.explained[1] * 100).toFixed(1) }),
-      { 'text-anchor': 'middle', 'font-size': 12, fill: WB.plot.TEXT, transform: 'rotate(-90)' });
+      { 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT, transform: 'rotate(-90)' });
     yl.setAttribute('x', -(m.t + (H - m.t - m.b) / 2));
-    yl.setAttribute('y', 16);
+    yl.setAttribute('y', 18);
     root.appendChild(yl);
     return canvas.svg;
   }

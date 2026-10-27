@@ -1,7 +1,10 @@
 /* =============================================================================
- * tools/diffexp.js  —  差异表达分析（分组比较）
- *   两组：Welch t 检验（参数法）/ Wilcoxon 秩和检验（非参数法）
- *   多组：单因素方差分析 ANOVA（参数法）/ Kruskal-Wallis（非参数法）
+ * tools/diffexp.js  —  差异表达分析（两组之间比较）
+ *
+ *   检验：Welch t 检验（参数法，不假定方差相等）/ Wilcoxon 秩和检验（非参数法）
+ *   多组矩阵：先明确选定「对照组」与「实验组」两个分组，其余分组的样本不参与统计
+ *   数据尺度：log2 值 / 原始信号强度（逐值 log2(x+1)）/
+ *             RNA-seq 原始计数（CPM 归一化后取 log2）/ 自动识别
  * ========================================================================== */
 (function (global) {
   'use strict';
@@ -11,45 +14,52 @@
   /* ------------------------- 界面文案（中 → 英） -------------------------- */
   WB.i18n.regUI({
     /* 模块元信息 */
-    '按分组比较基因表达水平：两组用 Welch t 检验或 Wilcoxon 秩和检验，多组用单因素方差分析或 Kruskal-Wallis 检验；输出差异倍数、统计量、P 值与 FDR，并绘制分组箱线图。':
-      'Compare gene expression across groups: Welch t-test or Wilcoxon rank-sum test for two groups, one-way ANOVA or Kruskal-Wallis test for multiple groups; reports fold change, test statistic, P value and FDR, with grouped box plots.',
+    '比较两组之间的基因表达水平：Welch t 检验（参数法）或 Wilcoxon 秩和检验（非参数法）；支持自动识别 / log2 值 / 原始信号强度 / RNA-seq 原始计数四种数据尺度；输出差异倍数、统计量、P 值与 FDR，并绘制分组箱线图。':
+      'Compare gene expression between two groups: Welch t-test (parametric) or Wilcoxon rank-sum test (non-parametric). Four data scales are supported — auto-detect / log2 values / raw signal intensity / raw RNA-seq counts. Outputs fold change, test statistic, P value and FDR, plus grouped box plots.',
     '差异表达': 'Differential expression',
-    '分组检验': 'Group comparison',
+    '两组比较': 'Two-group comparison',
     '非参数检验': 'Non-parametric test',
     'FDR 校正': 'FDR correction',
     '箱线图': 'Box plot',
 
     /* 输入格式 */
     '表达矩阵 + 分组注释': 'Expression matrix + group annotation',
-    ['<b>表达矩阵</b>：第一行为样本名，第一列为基因名，其余单元格为表达量。' +
+    '计数矩阵（RNA-seq 原始计数）': 'Count matrix (RNA-seq raw counts)',
+    ['<b>表达矩阵</b>：第一行为样本名，第一列为基因名，其余单元格为表达量；行是基因、列是样本。' +
       '基因名重复时仅保留第一次出现的行。<b>分组信息在下方「样本分组」中单独填写</b>（每行「样本名 <TAB> 分组名」）。']:
-      '<b>Expression matrix</b>: the first row holds sample names, the first column holds gene names, the remaining cells hold expression values. ' +
+      '<b>Expression matrix</b>: the first row holds sample names, the first column holds gene names and the remaining cells hold expression values; rows are genes and columns are samples. ' +
       'If a gene name appears more than once, only the first occurrence is kept. <b>Group information is entered separately in the “Sample groups” box below</b> (one “sample <TAB> group” pair per line).',
+    ['第一行为样本名、第一列为基因名，单元格为<b>非负整数计数</b>（如 featureCounts / HTSeq / RSEM 的 expected_count）。' +
+      '计数矩阵请把「数据尺度」设为<b>RNA-seq 原始计数</b>：程序先按样本文库大小归一化为 CPM，再取 log2(CPM+1) 后做检验，避免测序深度差异造成的假阳性。']:
+      'The first row holds sample names, the first column holds gene names and the cells hold <b>non-negative integer counts</b> (e.g. featureCounts / HTSeq / RSEM expected_count). ' +
+      'For count matrices set “Data scale” to <b>RNA-seq raw counts</b>: values are normalised to CPM per library, log2(CPM+1)-transformed, and then tested, which avoids false positives caused by differences in sequencing depth.',
     '表达矩阵的每一行是一个基因、每一列是一个样本；请确保样本名与分组信息中的名称完全一致。':
       'Each row of the matrix is a gene and each column a sample; sample names must match those in the group annotation exactly.',
     '分组信息填写示例': 'Group annotation example',
     '样本分组（填入下方「样本分组」框）：': 'Sample groups (enter into the “Sample groups” box below):',
-    '两组比较': 'Two-group comparison',
 
     /* 页头 */
     '差异表达分析': 'Differential expression analysis',
-    '按分组比较基因表达：两组用 Welch t 检验 / Wilcoxon 秩和检验，多组用单因素方差分析 / Kruskal-Wallis 检验，结果包含差异倍数、P 值与 FDR。':
-      'Compare gene expression between groups: Welch t-test / Wilcoxon rank-sum test for two groups, one-way ANOVA / Kruskal-Wallis test for multiple groups; results include fold change, P value and FDR.',
+    '比较选定的两个分组之间的基因表达：默认用 Welch t 检验（不假定方差相等），也可改用 Wilcoxon 秩和检验；结果包含 log₂FC、统计量、P 值与 FDR，并给出分组箱线图。':
+      'Compares gene expression between the two selected groups: the Welch t-test (unequal variances) is used by default, switchable to the Wilcoxon rank-sum test; results include log₂FC, test statistic, P value and FDR, together with grouped box plots.',
+    '本模块只做两组之间的比较。若矩阵含多个分组，请在「对照组 / 实验组」中明确指出要比较的两个分组，其余分组的样本会被排除。':
+      'This module compares two groups only. If the matrix contains more than two groups, name the two groups to compare in “Control group” / “Case group”; samples of the remaining groups are excluded.',
 
     /* 输入区 */
     '输入表达矩阵': 'Input expression matrix',
     '分析设置': 'Analysis settings',
-    '比较模式': 'Comparison mode',
-    '两组比较（推荐）': 'Two-group comparison (recommended)',
-    '多组整体检验': 'Omnibus test across groups',
     '检验方法（决定显著性）': 'Test used for significance',
-    '参数法（Welch t / 单因素 ANOVA）': 'Parametric (Welch t / one-way ANOVA)',
-    '非参数法（Wilcoxon / Kruskal-Wallis）': 'Non-parametric (Wilcoxon / Kruskal-Wallis)',
-    '对照组名称（留空自动取第一个组）': 'Control group (blank = first group)',
-    '实验组名称（留空自动取第二个组）': 'Case group (blank = second group)',
+    '参数法（Welch t 检验）': 'Parametric (Welch t-test)',
+    '非参数法（Wilcoxon 秩和检验）': 'Non-parametric (Wilcoxon rank-sum test)',
+    '对照组名称（必填）': 'Control group (required)',
+    '实验组名称（必填）': 'Case group (required)',
+    '请填写矩阵中已存在的分组名，例如 Control / Treatment；留空时自动依次取第 1、2 个分组。':
+      'Give a group name that exists in the annotation, e.g. Control / Treatment; if left blank, the first and second detected groups are used.',
     '数据尺度': 'Data scale',
+    '自动识别（推荐）': 'Auto-detect (recommended)',
     '已是 log 值（如 log2 表达量）': 'Already log-transformed (e.g. log2 expression)',
-    '原始信号强度（先取 log2）': 'Raw signal intensity (log2 taken first)',
+    '原始信号强度（逐值取 log2(x+1)）': 'Raw signal intensity (log2(x+1) per value)',
+    'RNA-seq 原始计数（CPM 归一化后取 log2）': 'RNA-seq raw counts (CPM-normalised, then log2)',
     '多重检验校正': 'Multiple-testing correction',
     'Benjamini-Hochberg (FDR)': 'Benjamini-Hochberg (FDR)',
     'Bonferroni': 'Bonferroni',
@@ -75,31 +85,59 @@
     '以下样本在分组信息中缺失：{list}': 'These samples are missing from the group annotation: {list}',
     '基因数过多（{n}），请先按表达量或方差筛选后再分析（建议 ≤ 20000 个基因）。':
       'Too many genes ({n}); filter by expression or variance first (we suggest ≤ 20000 genes).',
-    '至少需要两个分组、且每组至少 2 个样本才能进行组间比较。当前分组：{list}':
-      'At least two groups with ≥ 2 samples each are required. Current groups: {list}',
+    '需要至少两个可用分组、且每组至少 2 个样本。当前可用分组：{list}':
+      'At least two usable groups with ≥ 2 samples each are required. Usable groups: {list}',
+    '对照组「{a}」与实验组「{b}」不能相同。': 'The control group “{a}” and the case group “{b}” must differ.',
+    '分组 {list} 的样本数不足 2 个，已排除。': 'Groups {list} have fewer than 2 samples and were excluded.',
+    '计数矩阵中出现了负值，请确认「数据尺度」是否选错。':
+      'Negative values found in a count matrix — please check the “Data scale” setting.',
+    '某个样本的计数总和为 0，无法做 CPM 归一化，请检查该样本列。':
+      'The total count of one sample is 0, so CPM normalisation is impossible — please check that column.',
 
     /* 统计条与提示 */
     '基因数': 'Genes',
-    '样本数': 'Samples',
-    '分组数': 'Groups',
+    '参与比较的样本数': 'Samples compared',
+    '检出分组数': 'Groups detected',
     '显著基因': 'Significant genes',
     '检验方法': 'Test',
     '对照组': 'Control',
     '实验组': 'Case',
     '数据已重复的基因名仅保留首次出现': 'Duplicate gene names: first occurrence kept',
-    '设计：<b>{design}</b>；显著性检验采用 <b>{test}</b>；FDR 校正：<b>{adj}</b>；阈值 padj ≤ <b>{pc}</b>{fc}。':
-      'Design: <b>{design}</b>; significance test: <b>{test}</b>; FDR correction: <b>{adj}</b>; thresholds padj ≤ <b>{pc}</b>{fc}.',
+    '设计：<b>{design}</b>；显著性检验采用 <b>{test}</b>；多重检验校正：<b>{adj}</b>；阈值 padj ≤ <b>{pc}</b>{fc}。':
+      'Design: <b>{design}</b>; significance test: <b>{test}</b>; multiple-testing correction: <b>{adj}</b>; thresholds padj ≤ <b>{pc}</b>{fc}.',
     '，且 |log2FC| ≥ <b>{f}</b>': ', and |log2FC| ≥ <b>{f}</b>',
     '：{a} vs {b}': ': {a} vs {b}',
-    '：{k} 组整体检验': ': omnibus test across {k} groups',
     'Welch t 检验': 'Welch t-test',
     'Wilcoxon 秩和检验': 'Wilcoxon rank-sum test',
-    '单因素方差分析（ANOVA）': 'One-way ANOVA',
-    'Kruskal-Wallis 检验': 'Kruskal-Wallis test',
     'Benjamini-Hochberg（FDR）': 'Benjamini-Hochberg (FDR)',
     'Bonferroni 校正': 'Bonferroni',
     'Holm 校正': 'Holm',
     '未校正（原始 P 值）': 'None (raw P values)',
+    '矩阵共识别出 {all} 个分组（{names}），本次仅比较其中两组；未参与比较的 {drop} 个样本已被排除。':
+      'The annotation defines {all} groups ({names}); only two of them are compared here, so {drop} sample(s) outside these groups were excluded.',
+    '名称为「{u}」的分组不存在，已改按分组信息中出现的顺序选取：对照组 = {a}，实验组 = {b}。':
+      'The group “{u}” does not exist; the first two groups in the annotation were used instead: control = {a}, case = {b}.',
+
+    /* 数据尺度说明 */
+    '数据尺度：<b>{scale}</b>。':
+      'Data scale: <b>{scale}</b>.',
+    '已按样本文库大小归一化为 CPM，并取 log₂(CPM+1) 后再做统计；log₂FC = 组间均值差。':
+      'Values were normalised to CPM per library and log₂(CPM+1)-transformed before testing; log₂FC = difference of group means on this scale.',
+    '已逐值取 log₂(x+1) 后再做统计（检验与差异倍数使用同一尺度）。':
+      'Each value was log₂(x+1)-transformed before testing (test and fold change use the same scale).',
+    '数据按 log₂ 尺度直接使用，未做任何变换；请确认输入确为对数化后的数值。':
+      'Values were used directly on the log₂ scale without further transformation; please confirm the input is already log-transformed.',
+    '计数矩阵的组间比较在 log₂-CPM 尺度上用 t 检验，相当于 limma-trend 的近似；若需负二项模型的精确检验，建议再用 DESeq2 / edgeR 复核。':
+      'Count data are compared with a t-test on the log₂-CPM scale, which approximates limma-trend; for an exact negative-binomial test, cross-check with DESeq2 / edgeR.',
+    '自动识别的依据：所有数值均为非负整数，最大值 {mx}。如判断有误，请手动指定「数据尺度」。':
+      'Auto-detection: all values are non-negative integers, maximum {mx}. If this is wrong, set “Data scale” manually.',
+    '自动识别：数据不是全为非负整数，更接近对数化后的数值，因此按 log₂ 值直接使用；若原始数据为荧光强度等线性尺度，请手动改为「原始信号强度」。':
+      'Auto-detection: the values are not all non-negative integers and look log-transformed, so they are used on the log₂ scale directly; if the data are linear-scale intensities, set “Raw signal intensity” manually.',
+    'log₂(信号强度+1)': 'log₂(signal intensity+1)',
+    '各样本文库大小差异较大（最大 / 最小 = {r} 倍），已用 CPM 归一化校正测序深度。':
+      'Library sizes differ substantially between samples (max / min = {r}×); CPM normalisation corrected for sequencing depth.',
+    '数据形如非负整数（可能是计数矩阵），但当前「数据尺度」按 log₂ 值处理。若这是 RNA-seq 原始计数，请改为「RNA-seq 原始计数」。':
+      'The values look like non-negative integers (possibly a count matrix) but the current data scale treats them as log₂ values. If these are raw RNA-seq counts, choose “RNA-seq raw counts”.',
 
     /* 结果卡片 */
     '分组箱线图（最显著 {n} 个基因）': 'Grouped box plots (top {n} genes)',
@@ -112,7 +150,6 @@
     '下调': 'Down',
     '不显著': 'Not significant',
     '表达量': 'Expression',
-    '平均表达量': 'Mean expression',
     '均值': 'mean',
     '表中标红的行为通过阈值的显著差异基因（padj ≤ {pc}{fc}）。可分页查看，或点右上角「导出 TSV」保存全部结果；把显著基因名复制出来即可做富集分析。':
       'Highlighted rows pass the thresholds (padj ≤ {pc}{fc}). Page through the table, or use “Export TSV” at the top right to save all results; copy the significant gene names for enrichment analysis.',
@@ -122,8 +159,8 @@
     '中位数：': 'Median: ',
     '四分位距：': 'IQR: ',
     '样本数：': 'n = ',
-    '对照组为 {a}，实验组为 {b}；log2FC = 实验组均值 − 对照组均值（数据取 log2 后相减）。若数据列为原始信号强度，则先对组均值取 log2 再相减。':
-      'Control = {a}, case = {b}; log2FC = case mean − control mean on log2 scale. If the data column holds raw signal intensity, group means are log2-transformed before subtraction.',
+    '对照组为 {a}（n = {na}），实验组为 {b}（n = {nb}）；log₂FC = 实验组均值 − 对照组均值，检验与差异倍数都在同一变换后的尺度上计算。':
+      'Control = {a} (n = {na}), case = {b} (n = {nb}); log₂FC = case mean − control mean, and both the test and the fold change use the same transformed scale.',
     '箱线图：箱体为四分位距（Q1–Q3），中线为中位数，须延伸至 1.5 倍四分位距内的最远数据点，须外圆点为离群值；散点为单个样本（横向抖动以避免重叠）。':
       'Box plots: the box spans the interquartile range (Q1–Q3), the line is the median, whiskers extend to the most extreme data point within 1.5×IQR, and circles beyond the whiskers are outliers; dots are individual samples (jittered horizontally to avoid overlap).'
   });
@@ -132,13 +169,24 @@
     {
       name: '表达矩阵 + 分组注释',
       filename: 'diffexp_template.tsv',
-      desc: '<b>表达矩阵</b>：第一行为样本名，第一列为基因名，其余单元格为表达量。' +
+      desc: '<b>表达矩阵</b>：第一行为样本名，第一列为基因名，其余单元格为表达量；行是基因、列是样本。' +
         '基因名重复时仅保留第一次出现的行。<b>分组信息在下方「样本分组」中单独填写</b>（每行「样本名 <TAB> 分组名」）。',
       sample: 'Gene\tC1\tC2\tC3\tT1\tT2\tT3\n' +
         'MKI67\t7.12\t7.44\t6.98\t9.85\t9.52\t10.11\n' +
         'CCNB1\t6.80\t7.05\t6.61\t8.92\t9.14\t8.73\n' +
         'CD8A\t9.24\t9.61\t9.02\t7.35\t7.12\t7.58\n' +
         'TP53\t8.10\t8.02\t8.24\t8.19\t8.05\t8.16'
+    },
+    {
+      name: '计数矩阵（RNA-seq 原始计数）',
+      filename: 'diffexp_counts_template.tsv',
+      desc: '第一行为样本名、第一列为基因名，单元格为<b>非负整数计数</b>（如 featureCounts / HTSeq / RSEM 的 expected_count）。' +
+        '计数矩阵请把「数据尺度」设为<b>RNA-seq 原始计数</b>：程序先按样本文库大小归一化为 CPM，再取 log2(CPM+1) 后做检验，避免测序深度差异造成的假阳性。',
+      sample: 'Gene\tC1\tC2\tC3\tT1\tT2\tT3\n' +
+        'MKI67\t142\t168\t131\t812\t903\t877\n' +
+        'CCNB1\t96\t118\t88\t640\t702\t668\n' +
+        'CD8A\t1205\t1320\t1148\t302\t278\t331\n' +
+        'TP53\t488\t512\t470\t495\t506\t482'
     },
     {
       name: '分组信息填写示例',
@@ -159,13 +207,13 @@
     name: '差异表达分析',
     icon: '⇅',
     color: '#c8862a',
-    desc: '按分组比较基因表达水平：两组用 Welch t 检验或 Wilcoxon 秩和检验，多组用单因素方差分析或 Kruskal-Wallis 检验；输出差异倍数、统计量、P 值与 FDR，并绘制分组箱线图。',
-    tags: ['差异表达', '分组检验', '非参数检验', 'FDR 校正'],
+    desc: '比较两组之间的基因表达水平：Welch t 检验（参数法）或 Wilcoxon 秩和检验（非参数法）；支持自动识别 / log2 值 / 原始信号强度 / RNA-seq 原始计数四种数据尺度；输出差异倍数、统计量、P 值与 FDR，并绘制分组箱线图。',
+    tags: ['差异表达', '两组比较', '非参数检验', 'FDR 校正'],
 
     render: function (main) {
       main.appendChild(el('div.page-head', [
         el('h1', { text: T('差异表达分析') }),
-        el('p', { text: T('按分组比较基因表达：两组用 Welch t 检验 / Wilcoxon 秩和检验，多组用单因素方差分析 / Kruskal-Wallis 检验，结果包含差异倍数、P 值与 FDR。') })
+        el('p', { text: T('比较选定的两个分组之间的基因表达：默认用 Welch t 检验（不假定方差相等），也可改用 Wilcoxon 秩和检验；结果包含 log₂FC、统计量、P 值与 FDR，并给出分组箱线图。') })
       ]));
 
       var gTa = null;
@@ -178,26 +226,27 @@
         paramsTitle: '分析设置',
         params: [
           {
-            key: 'mode', label: '比较模式', type: 'select', value: 'pair',
-            options: [
-              { value: 'pair', label: '两组比较（推荐）' },
-              { value: 'multi', label: '多组整体检验' }
-            ]
-          },
-          {
             key: 'primary', label: '检验方法（决定显著性）', type: 'select', value: 'parametric',
             options: [
-              { value: 'parametric', label: '参数法（Welch t / 单因素 ANOVA）' },
-              { value: 'nonparametric', label: '非参数法（Wilcoxon / Kruskal-Wallis）' }
+              { value: 'parametric', label: '参数法（Welch t 检验）' },
+              { value: 'nonparametric', label: '非参数法（Wilcoxon 秩和检验）' }
             ]
           },
-          { key: 'groupA', label: '对照组名称（留空自动取第一个组）', type: 'text', value: '' },
-          { key: 'groupB', label: '实验组名称（留空自动取第二个组）', type: 'text', value: '' },
           {
-            key: 'dataScale', label: '数据尺度', type: 'select', value: 'log',
+            key: 'groupA', label: '对照组名称（必填）', type: 'text', value: '', width: 'full',
+            hint: '请填写矩阵中已存在的分组名，例如 Control / Treatment；留空时自动依次取第 1、2 个分组。'
+          },
+          {
+            key: 'groupB', label: '实验组名称（必填）', type: 'text', value: '', width: 'full',
+            hint: '请填写矩阵中已存在的分组名，例如 Control / Treatment；留空时自动依次取第 1、2 个分组。'
+          },
+          {
+            key: 'dataScale', label: '数据尺度', type: 'select', value: 'auto',
             options: [
+              { value: 'auto', label: '自动识别（推荐）' },
               { value: 'log', label: '已是 log 值（如 log2 表达量）' },
-              { value: 'linear', label: '原始信号强度（先取 log2）' }
+              { value: 'linear', label: '原始信号强度（逐值取 log2(x+1)）' },
+              { value: 'count', label: 'RNA-seq 原始计数（CPM 归一化后取 log2）' }
             ]
           },
           {
@@ -261,9 +310,82 @@
         WB._deDemoLoaded = true;
         panel.setText(WB.demo.diffexpText);
         gTa.value = WB.demo.diffexpGroups;
+        panel.save();
       }
     }
   });
+
+  /* =========================== 数据尺度处理 ============================== */
+
+  /**
+   * 识别数据尺度（仅区分 count 与 log；原始信号强度无法与 log 值区分，需用户指定）
+   * @returns {'count'|'log'}
+   */
+  function detectScale(matrix) {
+    var n = 0, nInt = 0, nz = 0, mn = Infinity, mx = -Infinity;
+    for (var i = 0; i < matrix.length; i++) {
+      var row = matrix[i];
+      for (var j = 0; j < row.length; j++) {
+        var v = row[j];
+        if (!isFinite(v)) continue;
+        n++;
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+        if (v === 0) nz++;
+        if (Math.abs(v - Math.round(v)) < 1e-9) nInt++;
+      }
+    }
+    if (!n || mn < 0) return 'log';
+    if (nInt !== n) return 'log';
+    // 全为非负整数：计数矩阵通常数值较大或含较多零
+    if (mx >= 20 || nz / n >= 0.15) return 'count';
+    return 'log';
+  }
+
+  /**
+   * 按尺度变换矩阵
+   *   log    → 原样
+   *   linear → 逐值 log2(x+1)
+   *   count  → 逐样本 CPM 归一化后 log2(CPM+1)
+   * @returns {{data:number[][], lib:number[], libRatio:number}}
+   */
+  function preprocessMatrix(matrix, scale) {
+    var nRow = matrix.length, nCol = nRow ? matrix[0].length : 0, i, j;
+    if (scale === 'linear') {
+      return {
+        data: matrix.map(function (r) {
+          return r.map(function (v) { return isFinite(v) ? Math.log2(Math.max(0, v) + 1) : NaN; });
+        }),
+        lib: null, libRatio: 1
+      };
+    }
+    if (scale === 'count') {
+      var lib = new Array(nCol).fill(0);
+      for (i = 0; i < nRow; i++) {
+        for (j = 0; j < nCol; j++) {
+          var v = matrix[i][j];
+          if (!isFinite(v)) continue;
+          if (v < 0) throw new Error(T('计数矩阵中出现了负值，请确认「数据尺度」是否选错。'));
+          lib[j] += v;
+        }
+      }
+      var lo = Infinity, hi = 0;
+      lib.forEach(function (s) {
+        if (s > 0 && s < lo) lo = s;
+        if (s > hi) hi = s;
+      });
+      if (!(hi > 0)) throw new Error(T('某个样本的计数总和为 0，无法做 CPM 归一化，请检查该样本列。'));
+      var out = matrix.map(function (r) {
+        return r.map(function (v, j2) {
+          if (!isFinite(v)) return NaN;
+          var cpm = lib[j2] > 0 ? v / lib[j2] * 1e6 : NaN;
+          return isFinite(cpm) ? Math.log2(cpm + 1) : NaN;
+        });
+      });
+      return { data: out, lib: lib, libRatio: (isFinite(lo) && lo > 0) ? hi / lo : 1 };
+    }
+    return { data: matrix.map(function (r) { return r.slice(); }), lib: null, libRatio: 1 };
+  }
 
   /* ------------------------------ 主流程 -------------------------------- */
 
@@ -284,128 +406,169 @@
     var gmap = parseGroups(ctx.values.groups || '', samples);
 
     /* 分组 → 样本列索引 */
-    var groupNames = [], idxByGroup = {};
+    var groupRaw = [], idxByGroup = {};
     samples.forEach(function (s, i) {
       var g = gmap[s];
       if (g === undefined || g === null || String(g).trim() === '') g = '';
       if (!g) return;
-      if (!idxByGroup[g]) { idxByGroup[g] = []; groupNames.push(g); }
+      if (!idxByGroup[g]) { idxByGroup[g] = []; groupRaw.push(g); }
       idxByGroup[g].push(i);
     });
-    var dropped = groupNames.filter(function (g) { return idxByGroup[g].length < 2; });
-    groupNames = groupNames.filter(function (g) { return idxByGroup[g].length >= 2; });
+    var dropped = groupRaw.filter(function (g) { return idxByGroup[g].length < 2; });
+    var groupNames = groupRaw.filter(function (g) { return idxByGroup[g].length >= 2; });
     if (groupNames.length < 2) {
-      throw new Error(T('至少需要两个分组、且每组至少 2 个样本才能进行组间比较。当前分组：{list}',
+      throw new Error(T('需要至少两个可用分组、且每组至少 2 个样本。当前可用分组：{list}',
         { list: groupNames.concat(dropped).join(', ') || '—' }));
     }
     if (genes.length > 20000) throw new Error(T('基因数过多（{n}），请先按表达量或方差筛选后再分析（建议 ≤ 20000 个基因）。', { n: genes.length }));
 
-    var mode = ctx.values.mode === 'multi' ? 'multi' : 'pair';
+    /* ---- 确定要比较的两个分组 ---- */
+    var wantA = String(ctx.values.groupA || '').trim();
+    var wantB = String(ctx.values.groupB || '').trim();
+    var gA = '', gB = '', missing = null;
+    if (wantA && groupNames.indexOf(wantA) < 0) { missing = wantA; }
+    else if (wantB && groupNames.indexOf(wantB) < 0) { missing = wantB; }
+    if (missing === null) {
+      gA = wantA || groupNames[0];
+      gB = wantB || groupNames.filter(function (g) { return g !== gA; })[0];
+    } else {
+      gA = groupNames[0];
+      gB = groupNames[1];
+    }
+    if (!gA || !gB || gA === gB) {
+      throw new Error(T('对照组「{a}」与实验组「{b}」不能相同。', { a: gA || '—', b: gB || '—' }));
+    }
+
+    var usedCols = idxByGroup[gA].concat(idxByGroup[gB]);
+    var nExcluded = samples.length - usedCols.length;
+
     var primary = ctx.values.primary === 'nonparametric' ? 'nonparametric' : 'parametric';
-    var dataScale = ctx.values.dataScale === 'linear' ? 'linear' : 'log';
     var pCut = Number(ctx.values.pCut) || 0.05;
     var fcCut = Number(ctx.values.fcCut);
-    if (!isFinite(fcCut)) fcCut = 1;
+    if (!isFinite(fcCut) || fcCut < 0) fcCut = 1;
 
-    var gA = String(ctx.values.groupA || '').trim();
-    var gB = String(ctx.values.groupB || '').trim();
-    if (groupNames.indexOf(gA) < 0) gA = groupNames[0];
-    if (groupNames.indexOf(gB) < 0 || gB === gA) {
-      gB = groupNames.filter(function (g) { return g !== gA; })[0] || gA;
-    }
-    if (mode === 'pair' && gA === gB) mode = 'multi';
+    /* ---- 数据尺度 ---- */
+    var scaleSel = ctx.values.dataScale || 'auto';
+    var looksCount = detectScale(mat) === 'count';
+    var rawMax = maxOf(mat);
+    var scale = scaleSel === 'auto' ? (looksCount ? 'count' : 'log') : scaleSel;
+    var prep = preprocessMatrix(mat, scale);
+    mat = prep.data;
 
+    /* ---- 逐基因检验 ---- */
     var storeRaw = genes.length <= 5000;
     var recs = [];
-    var LN2 = Math.LN2;
-
     for (var gi = 0; gi < genes.length; gi++) {
       var row = mat[gi];
-      var vals = {}, means = {};
-      groupNames.forEach(function (g) {
-        var arr = idxByGroup[g].map(function (i) { return row[i]; }).filter(isFinite);
-        vals[g] = arr;
-        means[g] = WB.stats.mean(arr);
+      var A = idxByGroup[gA].map(function (i) { return row[i]; }).filter(isFinite);
+      var B = idxByGroup[gB].map(function (i) { return row[i]; }).filter(isFinite);
+      var tt = WB.stats.welchTTest(A, B);
+      var ww = WB.stats.wilcoxonRankSum(A, B);
+      var meanA = WB.stats.mean(A), meanB = WB.stats.mean(B);
+      recs.push({
+        gene: genes[gi],
+        values: storeRaw ? { A: A, B: B } : null,
+        meanA: meanA, meanB: meanB,
+        statT: tt.t, pT: tt.p, dfT: tt.df,
+        statW: ww.U, pW: ww.p,
+        stat: primary === 'nonparametric' ? ww.U : tt.t,
+        p: primary === 'nonparametric' ? ww.p : tt.p,
+        statLabel: primary === 'nonparametric' ? 'U' : 't',
+        log2FC: (isFinite(meanB) && isFinite(meanA)) ? meanB - meanA : NaN
       });
-
-      var rec = { gene: genes[gi], means: means, values: storeRaw ? vals : null };
-
-      if (mode === 'pair') {
-        var A = vals[gA] || [], B = vals[gB] || [];
-        var tt = WB.stats.welchTTest(A, B);
-        var ww = WB.stats.wilcoxonRankSum(A, B);
-        rec.statT = tt.t; rec.pT = tt.p;
-        rec.statW = ww.U; rec.pW = ww.p;
-        rec.stat = primary === 'nonparametric' ? ww.U : tt.t;
-        rec.p = primary === 'nonparametric' ? ww.p : tt.p;
-        rec.statLabel = primary === 'nonparametric' ? 'U' : 't';
-        rec.meanA = means[gA]; rec.meanB = means[gB];
-        var mA = means[gA], mB = means[gB];
-        rec.log2FC = dataScale === 'log'
-          ? (isFinite(mB) && isFinite(mA) ? mB - mA : NaN)
-          : ((mA > 0 && mB > 0) ? Math.log(mB / mA) / LN2 : NaN);
-      } else {
-        var gs = groupNames.map(function (g) { return vals[g]; });
-        var av = WB.stats.oneWayAnova(gs);
-        var kw = WB.stats.kruskalWallis(gs);
-        rec.statF = av.F; rec.pF = av.p;
-        rec.statH = kw.H; rec.pH = kw.p;
-        rec.stat = primary === 'nonparametric' ? kw.H : av.F;
-        rec.p = primary === 'nonparametric' ? kw.p : av.p;
-        rec.statLabel = primary === 'nonparametric' ? 'H' : 'F';
-        var mx = -Infinity, mn = Infinity;
-        groupNames.forEach(function (g) {
-          var v = means[g];
-          if (isFinite(v)) { if (v > mx) mx = v; if (v < mn) mn = v; }
-        });
-        rec.log2FC = dataScale === 'log'
-          ? (isFinite(mx) && isFinite(mn) ? mx - mn : NaN)
-          : ((mn > 0 && isFinite(mx)) ? Math.log(mx / mn) / LN2 : NaN);
-      }
-      recs.push(rec);
     }
 
-    /* 多重检验校正 */
-    var pvals = recs.map(function (r) { return r.p; });
+    /* ---- 多重检验校正 ---- */
     var adjMethod = { BH: 'BH', bonferroni: 'BONFERRONI', holm: 'HOLM', none: 'NONE' }[ctx.values.pMethod] || 'BH';
+    var pvals = recs.map(function (r) { return isFinite(r.p) ? r.p : 1; });
     var qs = WB.stats.pAdjust(pvals, adjMethod);
     recs.forEach(function (r, i) { r.padj = qs[i]; });
 
-    /* 显著性判定 */
+    /* ---- 方向分类 ---- */
     var nSig = 0, nUp = 0, nDown = 0;
     recs.forEach(function (r) {
-      r.sig = isFinite(r.padj) && r.padj <= pCut && isFinite(r.log2FC) && Math.abs(r.log2FC) >= fcCut;
-      r.dir = isFinite(r.log2FC) ? (r.log2FC > 0 ? 'up' : 'down') : 'ns';
-      r.category = T(r.sig ? (r.dir === 'up' ? '上调' : '下调') : '不显著');
-      if (r.sig) { nSig++; if (r.dir === 'up') nUp++; else nDown++; }
+      var significant = isFinite(r.padj) && r.padj <= pCut;
+      r.trend = !isFinite(r.log2FC) ? 'ns' : (r.log2FC > 0 ? 'up' : 'down');
+      r.sig = significant && isFinite(r.log2FC) && Math.abs(r.log2FC) >= fcCut;
+      r.dir = r.sig ? (r.log2FC > 0 ? 'up' : 'down') : 'ns';
+      r.category = T(r.sig ? (r.log2FC > 0 ? '上调' : '下调') : '不显著');
+      if (r.sig) { nSig++; if (r.log2FC > 0) nUp++; else nDown++; }
     });
 
-    /* 统计条 */
-    var testName = mode === 'pair'
-      ? (primary === 'nonparametric' ? 'Wilcoxon 秩和检验' : 'Welch t 检验')
-      : (primary === 'nonparametric' ? 'Kruskal-Wallis 检验' : '单因素方差分析（ANOVA）');
+    /* ---- 统计条 ---- */
+    var testName = primary === 'nonparametric' ? 'Wilcoxon 秩和检验' : 'Welch t 检验';
     var adjName = { BH: 'Benjamini-Hochberg（FDR）', bonferroni: 'Bonferroni 校正', holm: 'Holm 校正', none: '未校正（原始 P 值）' }[ctx.values.pMethod] || 'Benjamini-Hochberg（FDR）';
 
     res.appendChild(WB.ui.statBar([
       { label: T('基因数'), value: genes.length },
-      { label: T('样本数'), value: samples.length },
-      { label: T('分组数'), value: groupNames.length },
+      { label: T('参与比较的样本数'), value: usedCols.length },
+      { label: T('检出分组数'), value: groupNames.length },
+      { label: T('对照组'), value: gA + ' (n=' + idxByGroup[gA].length + ')' },
+      { label: T('实验组'), value: gB + ' (n=' + idxByGroup[gB].length + ')' },
       { label: T('显著基因'), value: nSig, tone: nSig ? 'red' : '' },
       { label: T('上调'), value: nUp, tone: 'red' },
       { label: T('下调'), value: nDown, tone: 'green' }
     ]));
 
-    var designTxt = mode === 'pair'
-      ? T('：{a} vs {b}', { a: gA, b: gB })
-      : T('：{k} 组整体检验', { k: groupNames.length });
     res.appendChild(WB.ui.alertBox('info',
-      T('设计：<b>{design}</b>；显著性检验采用 <b>{test}</b>；FDR 校正：<b>{adj}</b>；阈值 padj ≤ <b>{pc}</b>{fc}。', {
-        design: T(mode === 'pair' ? '两组比较' : '多组整体检验') + designTxt,
+      T('设计：<b>{design}</b>；显著性检验采用 <b>{test}</b>；多重检验校正：<b>{adj}</b>；阈值 padj ≤ <b>{pc}</b>{fc}。', {
+        design: T('两组比较') + T('：{a} vs {b}', { a: gA, b: gB }),
         test: T(testName),
         adj: T(adjName),
         pc: pCut,
         fc: (fcCut > 0 ? T('，且 |log2FC| ≥ <b>{f}</b>', { f: fcCut }) : '')
       })));
+    res.appendChild(WB.ui.alertBox('info',
+      T('对照组为 {a}（n = {na}），实验组为 {b}（n = {nb}）；log₂FC = 实验组均值 − 对照组均值，检验与差异倍数都在同一变换后的尺度上计算。',
+        { a: gA, na: idxByGroup[gA].length, b: gB, nb: idxByGroup[gB].length })));
+
+    if (missing !== null) {
+      res.appendChild(WB.ui.alertBox('warn',
+        T('名称为「{u}」的分组不存在，已改按分组信息中出现的顺序选取：对照组 = {a}，实验组 = {b}。',
+          { u: missing, a: gA, b: gB })));
+    }
+    if (groupNames.length > 2 || nExcluded > 0) {
+      res.appendChild(WB.ui.alertBox('info',
+        T('矩阵共识别出 {all} 个分组（{names}），本次仅比较其中两组；未参与比较的 {drop} 个样本已被排除。', {
+          all: groupNames.length, names: groupNames.join('、'), drop: nExcluded
+        })));
+    }
+    if (dropped.length) {
+      res.appendChild(WB.ui.alertBox('warn',
+        T('分组 {list} 的样本数不足 2 个，已排除。', { list: dropped.join('、') })));
+    }
+
+    /* ---- 数据尺度说明 ---- */
+    var scaleName = {
+      log: T('已是 log 值（如 log2 表达量）'),
+      linear: T('原始信号强度（逐值取 log2(x+1)）'),
+      count: T('RNA-seq 原始计数（CPM 归一化后取 log2）')
+    }[scale];
+    var scaleHow = {
+      log: T('数据按 log₂ 尺度直接使用，未做任何变换；请确认输入确为对数化后的数值。'),
+      linear: T('已逐值取 log₂(x+1) 后再做统计（检验与差异倍数使用同一尺度）。'),
+      count: T('已按样本文库大小归一化为 CPM，并取 log₂(CPM+1) 后再做统计；log₂FC = 组间均值差。')
+    }[scale];
+    var scaleDetail = T('数据尺度：<b>{scale}</b>。', { scale: scaleName }) + scaleHow;
+    if (scaleSel === 'auto') {
+      if (scale === 'count') {
+        scaleDetail += T('自动识别的依据：所有数值均为非负整数，最大值 {mx}。如判断有误，请手动指定「数据尺度」。',
+          { mx: WB.formatNum(rawMax, 0) });
+      } else {
+        scaleDetail += T('自动识别：数据不是全为非负整数，更接近对数化后的数值，因此按 log₂ 值直接使用；若原始数据为荧光强度等线性尺度，请手动改为「原始信号强度」。');
+      }
+    }
+    res.appendChild(WB.ui.alertBox('info', scaleDetail));
+    if (scale === 'count') {
+      res.appendChild(WB.ui.alertBox('warn',
+        T('计数矩阵的组间比较在 log₂-CPM 尺度上用 t 检验，相当于 limma-trend 的近似；若需负二项模型的精确检验，建议再用 DESeq2 / edgeR 复核。')));
+      if (prep.libRatio > 3) {
+        res.appendChild(WB.ui.alertBox('warn',
+          T('各样本文库大小差异较大（最大 / 最小 = {r} 倍），已用 CPM 归一化校正测序深度。', { r: WB.formatNum(prep.libRatio, 1) })));
+      }
+    } else if (looksCount && scaleSel === 'log') {
+      res.appendChild(WB.ui.alertBox('warn', T('数据形如非负整数（可能是计数矩阵），但当前「数据尺度」按 log₂ 值处理。若这是 RNA-seq 原始计数，请改为「RNA-seq 原始计数」。')));
+    }
     if (dupGenes > 0) {
       res.appendChild(WB.ui.alertBox('warn',
         T('数据已重复的基因名仅保留首次出现') + '（' + dupGenes + '）'));
@@ -413,15 +576,14 @@
     if (!storeRaw) {
       res.appendChild(WB.ui.alertBox('warn', T('数据量较大（{n} 个基因），箱线图仅按全部基因统计结果绘制最显著的部分；表格为全部基因。', { n: genes.length })));
     }
-    if (mode === 'pair') {
-      res.appendChild(WB.ui.alertBox('info', T('对照组为 {a}，实验组为 {b}；log2FC = 实验组均值 − 对照组均值（数据取 log2 后相减）。若数据列为原始信号强度，则先对组均值取 log2 再相减。', { a: gA, b: gB })));
-    }
 
     /* 排序：P 值升序 */
     var sorted = recs.slice().sort(function (a, b) {
       var pa = isFinite(a.padj) ? a.padj : Infinity, pb = isFinite(b.padj) ? b.padj : Infinity;
       return pa - pb;
     });
+
+    var yTitle = { count: 'log₂(CPM+1)', linear: T('log₂(信号强度+1)'), log: T('表达量') }[scale];
 
     /* 箱线图 */
     if (ctx.values.showBox && storeRaw) {
@@ -432,7 +594,7 @@
       var bBody = boxCard.querySelector('.card-body');
       var holder = el('div.plot-holder');
       bBody.appendChild(holder);
-      var svg = drawBoxplot(holder, plotRows, groupNames, { yTitle: T('表达量') });
+      var svg = drawBoxplot(holder, plotRows, [gA, gB], { yTitle: yTitle });
       if (svg) {
         WB.plot.addToolbar(bBody, { getSvg: function () { return svg; }, basename: 'diffexp_boxplot' });
         bBody.appendChild(el('div.preview-note', {
@@ -447,30 +609,25 @@
     var tBody = tCard.querySelector('.card-body');
     var cols = [
       { key: 'rank', label: '#', align: 'right', width: 52 },
-      { key: 'gene', label: T('基因') }
+      { key: 'gene', label: T('基因') },
+      { key: 'mA', label: gA + ' ' + T('均值'), align: 'right', width: 104, format: function (r) { return WB.formatNum(r.meanA, 3); } },
+      { key: 'mB', label: gB + ' ' + T('均值'), align: 'right', width: 104, format: function (r) { return WB.formatNum(r.meanB, 3); } },
+      { key: 'log2FC', label: 'log₂FC', align: 'right', width: 88, format: function (r) { return fmtFC(r.log2FC); } },
+      { key: 'stat', label: T('统计量') + ' (' + (sorted[0] ? sorted[0].statLabel : 't') + ')', align: 'right', width: 96, format: function (r) { return WB.formatNum(r.stat, 3); } },
+      { key: 'p', label: T('P 值'), align: 'right', width: 100, format: function (r) { return WB.pFormat(r.p); } },
+      { key: 'padj', label: 'padj', align: 'right', width: 100, format: function (r) { return WB.pFormat(r.padj); } },
+      {
+        key: 'category', label: T('显著性'), width: 132,
+        render: function (r) { return el('span.tag-cat.tag-' + r.dir, { text: r.category }); }
+      }
     ];
-    groupNames.forEach(function (g) {
-      cols.push({
-        key: 'm_' + g, label: g + ' ' + T('均值'), align: 'right', width: 104,
-        format: function (r) { return WB.formatNum(r.means[g], 3); }
-      });
-    });
-    cols.push({ key: 'log2FC', label: 'log₂FC', align: 'right', width: 92, format: function (r) { return WB.formatNum(r.log2FC, 3); } });
-    cols.push({ key: 'stat', label: T('统计量') + ' (' + (sorted[0] ? sorted[0].statLabel : 't') + ')', align: 'right', width: 96, format: function (r) { return WB.formatNum(r.stat, 3); } });
-    cols.push({ key: 'p', label: T('P 值'), align: 'right', width: 100, format: function (r) { return WB.pFormat(r.p); } });
-    cols.push({ key: 'padj', label: 'padj', align: 'right', width: 100, format: function (r) { return WB.pFormat(r.padj); } });
-    cols.push({
-      key: 'category', label: T('显著性'), width: 104,
-      render: function (r) { return el('span.tag-cat.tag-' + r.dir, { text: r.category }); }
-    });
 
     var tableRows = sorted.map(function (r, i) {
-      var o = {
-        rank: i + 1, gene: r.gene, log2FC: r.log2FC, stat: r.stat,
-        p: r.p, padj: r.padj, dir: r.dir, sig: r.sig, category: r.category, means: r.means
+      return {
+        rank: i + 1, gene: r.gene, meanA: r.meanA, meanB: r.meanB,
+        log2FC: r.log2FC, stat: r.stat, p: r.p, padj: r.padj,
+        dir: r.dir, sig: r.sig, category: r.category
       };
-      groupNames.forEach(function (g) { o['m_' + g] = r.means[g]; });
-      return o;
     });
     WB.ui.dataTable(tBody, cols, tableRows, {
       pageSize: 25, exportName: 'diffexp_results',
@@ -483,13 +640,20 @@
     }));
   }
 
+  function maxOf(mat) {
+    var mx = -Infinity;
+    mat.forEach(function (r) { r.forEach(function (v) { if (isFinite(v) && v > mx) mx = v; }); });
+    return isFinite(mx) ? mx : 0;
+  }
+
+  /** 差异倍数格式化：把浮点噪声（|v| < 1e-12）显示为 0 */
+  function fmtFC(v) {
+    if (!isFinite(v)) return WB.formatNum(v, 3);
+    return WB.formatNum(Math.abs(v) < 1e-12 ? 0 : v, 3);
+  }
+
   /* --------------------------- 分组信息解析 ------------------------------ */
 
-  /**
-   * 解析样本分组，返回 { 样本名: 分组名 }
-   * 版式 A：单行「表头 + 按列顺序的分组名」
-   * 版式 B：两列「样本名 + 分组名」
-   */
   function parseGroups(text, samples) {
     if (!text || !text.trim()) {
       throw new Error(T('请提供样本分组信息（每行「样本名 <TAB> 分组名」）'));
@@ -529,15 +693,19 @@
   function drawBoxplot(container, plotRows, groupNames, cfg) {
     if (!plotRows.length) { WB.plot.emptyState(container, T('common.noData')); return null; }
 
-    var W = 820, H = 440, m = { l: 68, r: 18, t: 24, b: 104 };
+    var W = 760, H = 420, m = { l: 68, r: 18, t: 24, b: 112 };
     var canvas = WB.plot.createSVG(container, W, H, {});
     var root = canvas.root;
 
-    /* y 轴范围（含全部要绘制的数据） */
+    var valuesOf = function (r, g) {
+      return groupNames[0] === g ? (r.values.A || []) : (r.values.B || []);
+    };
+
+    /* y 轴范围 */
     var vmin = Infinity, vmax = -Infinity;
     plotRows.forEach(function (r) {
       groupNames.forEach(function (g) {
-        (r.values[g] || []).forEach(function (v) {
+        valuesOf(r, g).forEach(function (v) {
           if (v < vmin) vmin = v;
           if (v > vmax) vmax = v;
         });
@@ -547,17 +715,16 @@
     var pad = (vmax - vmin) * 0.08 || 1;
     var sy = WB.plot.linearScale(vmin - pad, vmax + pad, H - m.b, m.t);
 
-    var genes = plotRows.map(function (r) { return r.gene; });
-    var sx = WB.plot.bandScale(genes, m.l, W - m.r, 0.24);
+    var geneList = plotRows.map(function (r) { return r.gene; });
+    var sx = WB.plot.bandScale(geneList, m.l, W - m.r, 0.24);
     var slot = sx.bandwidth() / groupNames.length;
-    var boxW = Math.max(5, Math.min(26, slot * 0.78));
+    var boxW = Math.max(5, Math.min(30, slot * 0.78));
 
-    /* 横向网格线与 y 轴刻度 */
     sy.ticks(6).forEach(function (t) {
       if (t < vmin - pad || t > vmax + pad) return;
       root.appendChild(S('line', { x1: m.l, y1: sy(t), x2: W - m.r, y2: sy(t), stroke: WB.plot.GRID }));
-      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 3.5, WB.formatNum(t, 2),
-        { 'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 4, WB.formatNum(t, 2),
+        { 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
 
     var colorOf = function (j) { return WB.plot.palette(j); };
@@ -565,32 +732,29 @@
     plotRows.forEach(function (r, ri) {
       var bandX = sx(r.gene);
       groupNames.forEach(function (g, gj) {
-        var arr = (r.values[g] || []).slice().sort(function (a, b) { return a - b; });
+        var arr = valuesOf(r, g).slice().sort(function (a, b) { return a - b; });
         if (!arr.length) return;
         var cx = bandX + (gj + 0.5) * slot + (sx.bandwidth() - slot * groupNames.length) / 2;
         var q1 = WB.stats.quantile(arr, 0.25);
         var med = WB.stats.quantile(arr, 0.5);
         var q3 = WB.stats.quantile(arr, 0.75);
         var iqr = q3 - q1;
-        var wLo = q1, wHi = q3;
-        for (var i = 0; i < arr.length; i++) { if (arr[i] >= q1 - 1.5 * iqr) { wLo = arr[i]; break; } }
-        for (var k = arr.length - 1; k >= 0; k--) { if (arr[k] <= q3 + 1.5 * iqr) { wHi = arr[k]; break; } }
+        var wLo = q1, wHi = q3, i;
+        for (i = 0; i < arr.length; i++) { if (arr[i] >= q1 - 1.5 * iqr) { wLo = arr[i]; break; } }
+        for (i = arr.length - 1; i >= 0; i--) { if (arr[i] <= q3 + 1.5 * iqr) { wHi = arr[i]; break; } }
         var col = colorOf(gj);
 
-        /* 须 */
         root.appendChild(S('line', { x1: cx, y1: sy(wLo), x2: cx, y2: sy(q1), stroke: col, 'stroke-width': 1.2 }));
         root.appendChild(S('line', { x1: cx, y1: sy(q3), x2: cx, y2: sy(wHi), stroke: col, 'stroke-width': 1.2 }));
         root.appendChild(S('line', { x1: cx - boxW * 0.35, y1: sy(wLo), x2: cx + boxW * 0.35, y2: sy(wLo), stroke: col, 'stroke-width': 1.2 }));
         root.appendChild(S('line', { x1: cx - boxW * 0.35, y1: sy(wHi), x2: cx + boxW * 0.35, y2: sy(wHi), stroke: col, 'stroke-width': 1.2 }));
-
-        /* 箱体与中位数 */
         root.appendChild(S('rect', {
           x: cx - boxW / 2, y: sy(q3), width: boxW, height: Math.max(1, sy(q1) - sy(q3)),
           fill: col, 'fill-opacity': 0.34, stroke: col, 'stroke-width': 1
         }));
         root.appendChild(S('line', { x1: cx - boxW / 2, y1: sy(med), x2: cx + boxW / 2, y2: sy(med), stroke: col, 'stroke-width': 1.8 }));
 
-        /* 单样本散点（横向抖动，固定抖动值保证可复现） */
+        /* 单样本散点（固定抖动序列，保证每次出图一致） */
         var jit = [-0.30, 0.30, -0.16, 0.16, -0.05, 0.05, -0.24, 0.24];
         arr.forEach(function (v, vi) {
           var off = jit[vi % jit.length] * boxW * 0.42;
@@ -600,7 +764,6 @@
           }));
         });
 
-        /* 悬停提示 */
         var hit = S('rect', {
           x: cx - boxW / 2 - 1, y: m.t, width: boxW + 2, height: H - m.t - m.b,
           fill: 'transparent', style: 'cursor:crosshair'
@@ -618,28 +781,26 @@
       /* 基因名与显著性标记 */
       var star = WB.plot.sigStar(r.padj);
       var lx = bandX + sx.bandwidth() / 2;
-      var lbl = WB.plot.txt(lx, H - m.b + 16, r.gene, {
-        'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.TEXT,
+      root.appendChild(WB.plot.txt(lx, H - m.b + 16, r.gene, {
+        'text-anchor': 'end', 'font-size': 12, 'font-weight': 600, fill: WB.plot.TICKTEXT,
         transform: 'rotate(-42 ' + lx + ' ' + (H - m.b + 16) + ')'
-      });
-      root.appendChild(lbl);
+      }));
       if (star) {
         root.appendChild(WB.plot.txt(lx, H - m.b + 34, star, {
-          'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: '#a8332b'
+          'text-anchor': 'middle', 'font-size': 12, 'font-weight': 700, fill: '#a8332b'
         }));
       }
     });
 
-    /* 坐标轴与标题 */
     root.appendChild(S('rect', {
       x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b,
       fill: 'none', stroke: WB.plot.AXIS
     }));
     root.appendChild(WB.plot.txt(m.l + (W - m.l - m.r) / 2, H - 16, T('基因'), {
-      'text-anchor': 'middle', 'font-size': 12.5, fill: WB.plot.TEXT
+      'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT
     }));
     var yl = WB.plot.txt(0, 0, cfg.yTitle || T('表达量'), {
-      'text-anchor': 'middle', 'font-size': 12.5, fill: WB.plot.TEXT, transform: 'rotate(-90)'
+      'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT, transform: 'rotate(-90)'
     });
     yl.setAttribute('x', -(m.t + (H - m.t - m.b) / 2));
     yl.setAttribute('y', 16);
@@ -650,4 +811,10 @@
     }));
     return canvas.svg;
   }
+
+  /* 暴露内部纯函数，供自检调用 */
+  WB.diffexp = {
+    detectScale: detectScale,
+    preprocessMatrix: preprocessMatrix
+  };
 })(window);

@@ -847,6 +847,447 @@
 
   /* ------------------------------ 导出 ---------------------------------- */
 
+  /* ====================== 扩展检验：置信区间与 post hoc ==================== */
+
+  /**
+   * t 分布分位数（双侧）
+   * @param {number} df   自由度
+   * @param {number} tail 双侧尾概率（如 0.05 对应 95% 置信区间）
+   * @returns {number} |t|
+   */
+  function invTDist(df, tail) {
+    if (!isFinite(df) || df <= 0) return NaN;
+    tail = Math.min(Math.max(tail, 1e-14), 0.999999);
+    var lo = 0, hi = 1e3;
+    for (var i = 0; i < 160; i++) {
+      var mid = (lo + hi) / 2;
+      if (tTestP(mid, df) > tail) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  /**
+   * 简单线性回归：ŷ = intercept + slope·x（OLS）
+   * @returns {{n:number, slope:number, intercept:number, seSlope:number, seIntercept:number,
+   *            df:number, mse:number, xMean:number, sxx:number, r:number, r2:number,
+   *            fit:function, seFit:function, sePred:function}}
+   */
+  function linearRegression(x, y) {
+    var px = [], py = [], i;
+    for (i = 0; i < x.length; i++) {
+      if (isFinite(x[i]) && isFinite(y[i])) { px.push(x[i]); py.push(y[i]); }
+    }
+    var n = px.length;
+    if (n < 3) return null;
+    var xm = mean(px), ym = mean(py), sxx = 0, sxy = 0, syy = 0;
+    for (i = 0; i < n; i++) {
+      var dx = px[i] - xm, dy = py[i] - ym;
+      sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+    }
+    if (sxx <= 0 || syy <= 0) return null;
+    var slope = sxy / sxx, intercept = ym - slope * xm;
+    var ssRes = Math.max(0, syy - slope * sxy);
+    var df = n - 2, mse = df > 0 ? ssRes / df : NaN;
+    var seSlope = Math.sqrt(mse / sxx);
+    var seIntercept = Math.sqrt(mse * (1 / n + xm * xm / sxx));
+    var r = sxy / Math.sqrt(sxx * syy);
+    var out = {
+      n: n, slope: slope, intercept: intercept, seSlope: seSlope, seIntercept: seIntercept,
+      df: df, mse: mse, xMean: xm, sxx: sxx, r: r, r2: r * r, slopeSE: seSlope,
+      fit: function (x0) { return intercept + slope * x0; },
+      seFit: function (x0) { return Math.sqrt(mse * (1 / n + (x0 - xm) * (x0 - xm) / sxx)); },
+      sePred: function (x0) { return Math.sqrt(mse * (1 + 1 / n + (x0 - xm) * (x0 - xm) / sxx)); }
+    };
+    out.p = tTestP(slope / seSlope, df);
+    return out;
+  }
+
+  /** 单样本 t 检验（与 mu0 比较） */
+  function oneSampleTTest(a, mu0) {
+    var n = a.length;
+    if (n < 2) return { t: NaN, df: NaN, p: NaN };
+    var m = mean(a), sd = stdev(a), se = sd / Math.sqrt(n);
+    var t = (m - mu0) / se;
+    return { t: t, df: n - 1, p: tTestP(t, n - 1), mean: m, sd: sd, se: se, n: n };
+  }
+
+  /** 配对样本 t 检验（差值的单样本 t 检验） */
+  function pairedTTest(a, b) {
+    var d = [], i;
+    for (i = 0; i < a.length; i++) {
+      if (isFinite(a[i]) && isFinite(b[i])) d.push(a[i] - b[i]);
+    }
+    var n = d.length;
+    if (n < 2) return { t: NaN, df: NaN, p: NaN, n: n, meanDiff: NaN };
+    var m = mean(d), sd = stdev(d), se = sd / Math.sqrt(n);
+    var t = m / se, df = n - 1;
+    return {
+      t: t, df: df, p: tTestP(t, df), n: n, meanDiff: m, sdDiff: sd, se: se,
+      ciLow: m - invTDist(df, 0.05) * se, ciHigh: m + invTDist(df, 0.05) * se
+    };
+  }
+
+  /** Wilcoxon 符号秩检验（配对 Design；正态近似 + 并列校正 + 连续性校正） */
+  function wilcoxonSignedRank(a, b) {
+    var d = [], i;
+    for (i = 0; i < a.length; i++) {
+      if (isFinite(a[i]) && isFinite(b[i])) d.push(a[i] - b[i]);
+    }
+    var nz = d.filter(function (v) { return v !== 0; });
+    var n = nz.length;
+    if (!n) return { W: NaN, z: NaN, p: NaN, n: 0 };
+    var abs = nz.map(function (v) { return Math.abs(v); });
+    var rk = rank(abs), Wp = 0, Wm = 0;
+    for (i = 0; i < n; i++) {
+      if (nz[i] > 0) Wp += rk[i]; else Wm += rk[i];
+    }
+    var W = Math.min(Wp, Wm);
+    var mu = n * (n + 1) / 4;
+    var counts = {}, tieSum = 0;
+    abs.forEach(function (v) { counts[v] = (counts[v] || 0) + 1; });
+    Object.keys(counts).forEach(function (k) { var t = counts[k]; tieSum += t * t * t - t; });
+    var sigma = Math.sqrt(n * (n + 1) * (2 * n + 1) / 24 - tieSum / 48);
+    var z = sigma > 0 ? (Math.abs(Wp - mu) - 0.5) / sigma : 0;
+    return { W: W, Wp: Wp, Wm: Wm, z: z, p: 2 * (1 - pnorm(z)), n: n, expected: mu, sd: sigma };
+  }
+
+  /**
+   * Shapiro-Wilk 正态性检验
+   * 系数按 Royston (1992) 的 Moschopoulos 近似计算（σ=Blom 正态分位期望值，
+   * 端点系数由 u = n^(−1/2) 的多项式给出）；P 值用 Royston 的三参数对数正态转换。
+   * 说明：与 R shapiro.test 在 3 ≤ n ≤ 50 使用精确系数表可能有细微差异。
+   */
+  function shapiroWilk(a) {
+    var x = a.filter(isFinite).slice().sort(function (p, q) { return p - q; });
+    var n = x.length;
+    if (n < 3) return { W: NaN, p: NaN, n: n };
+    var m = [], i;
+    for (i = 0; i < n; i++) m.push(invNorm((i + 1 - 0.375) / (n + 0.25)));
+    var mm = 0;
+    for (i = 0; i < n; i++) mm += m[i] * m[i];
+    var sqmm = Math.sqrt(mm);
+    var u = 1 / Math.sqrt(n);
+    var c = m.map(function (v) { return v / sqmm; });   // 归一化后 Σc² = 1
+    /* 两端系数（Royston 1992 的 u 多项式） */
+    var p1 = c[n - 1] + 0.221157 * u - 0.147981 * u * u - 2.071190 * Math.pow(u, 3)
+      + 4.434685 * Math.pow(u, 4) - 2.706056 * Math.pow(u, 5);
+    var p2 = c[n - 2] + 0.042981 * u - 0.293762 * u * u - 1.752461 * Math.pow(u, 3)
+      + 5.682633 * Math.pow(u, 4) - 3.582633 * Math.pow(u, 5);
+    var phi = (1 - 2 * c[n - 1] * c[n - 1] - 2 * c[n - 2] * c[n - 2]) /
+      (1 - 2 * p1 * p1 - 2 * p2 * p2);
+    var coef = c.map(function (v) { return phi > 0 ? v / Math.sqrt(phi) : 0; });
+    coef[n - 1] = p1; coef[n - 2] = p2; coef[0] = -p1;
+    var xb = mean(x), ss = 0;
+    for (i = 0; i < n; i++) ss += (x[i] - xb) * (x[i] - xb);
+    var lin = 0;
+    for (i = 0; i < n; i++) lin += coef[i] * x[i];
+    var W = ss > 0 ? (lin * lin) / ss : NaN;
+    var p = NaN;
+    if (isFinite(W) && W < 1) {
+      var ln = Math.log(n);
+      var mu = -1.5861 - 0.31082 * ln - 0.083751 * ln * ln + 0.0038915 * ln * ln * ln;
+      var sd = Math.exp(-0.4803 - 0.082676 * ln + 0.0030302 * ln * ln);
+      var z = (Math.log(1 - W) - mu) / sd;
+      p = 1 - pnorm(z);
+      p = Math.min(1, Math.max(0, p));
+    }
+    return { W: W, p: p, n: n };
+  }
+
+  /**
+   * 标准正态分位数
+   * 实现为对 pnorm 的二分反解（pnorm 基于 erf，绝对精度约 1e-7），
+   * 避免引入额外的有理逼近常数表；需求场景（Shapiro-Wilk 期望次序统计量）足够精确。
+   */
+  function invNorm(p) {
+    if (!(p > 0) || !(p < 1)) return p <= 0 ? -8.2 : 8.2;
+    var lo = -8.2, hi = 8.2;
+    for (var i = 0; i < 100; i++) {
+      var mid = (lo + hi) / 2;
+      if (pnorm(mid) < p) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  /** D'Agostino-Pearson 综合正态性检验（偏度 Zs + 峰度 Zk，K² ~ χ²(2)）；建议 n ≥ 20 */
+  function dagostinoPearson(a) {
+    var x = a.filter(isFinite);
+    var n = x.length;
+    if (n < 8) return { K2: NaN, p: NaN, skewZ: NaN, kurtZ: NaN, skew: NaN, kurt: NaN, n: n };
+    var xb = mean(x), m2 = 0, m3 = 0, m4 = 0, i;
+    for (i = 0; i < n; i++) {
+      var d0 = x[i] - xb;
+      m2 += d0 * d0; m3 += d0 * d0 * d0; m4 += d0 * d0 * d0 * d0;
+    }
+    m2 /= n; m3 /= n; m4 /= n;
+    var b1 = m2 > 0 ? (m3 * m3) / (m2 * m2 * m2) : 0;
+    var g1 = Math.sign(m3) * Math.sqrt(b1);
+    var b2 = m2 > 0 ? m4 / (m2 * m2) : NaN;
+    /* 偏度检验（D'Agostino 1970） */
+    var Y = g1 * Math.sqrt((n + 1) * (n + 3) / (6 * (n - 2)));
+    var beta2 = 3 * (n * n + 27 * n - 70) * (n + 1) * (n + 3) /
+      ((n - 2) * (n + 5) * (n + 7) * (n + 9));
+    var W2 = -1 + Math.sqrt(2 * (beta2 - 1));
+    var delta = 1 / Math.sqrt(Math.log(Math.sqrt(W2)));
+    var alphaS = Math.sqrt(2 / (W2 - 1));
+    var t = Y / alphaS;
+    var Zs = delta * Math.log(t + Math.sqrt(t * t + 1));
+    /* 峰度检验（Anscombe-Glynn 1983） */
+    var Ek = 3 * (n - 1) / (n + 1);
+    var varb2 = 24 * n * (n - 2) * (n - 3) / ((n + 1) * (n + 1) * (n + 3) * (n + 5));
+    var xx = (b2 - Ek) / Math.sqrt(varb2);
+    var sqrtb1 = 6 * (n * n - 5 * n + 2) / ((n + 7) * (n + 9)) *
+      Math.sqrt(6 * (n + 3) * (n + 5) / (n * (n - 2) * (n - 3)));
+    var A = 6 + 8 / sqrtb1 * (2 / sqrtb1 + Math.sqrt(1 + 4 / (sqrtb1 * sqrtb1)));
+    var term1 = 1 - 2 / (9 * A);
+    var denom = 1 + xx * Math.sqrt(2 / (A - 4));
+    var Zk = (term1 - (1 - 2 / A) / Math.pow(denom, 1 / 3)) / Math.sqrt(2 / (9 * A));
+    var K2 = Zs * Zs + Zk * Zk;
+    return { K2: K2, p: chi2Sf(K2, 2), skewZ: Zs, kurtZ: Zk, skew: g1, kurt: b2, n: n };
+  }
+
+  /**
+   * Levene 方差齐性检验（默认 Brown-Forsythe 中位数版，对非正态更稳健）
+   * @param {number[][]} groups
+   * @param {string} center 'median' | 'mean'
+   */
+  function leveneTest(groups, center) {
+    center = center || 'median';
+    var g = groups.filter(function (a) { return a && a.length >= 2; });
+    if (g.length < 2) return { F: NaN, p: NaN, df1: NaN, df2: NaN };
+    var z = g.map(function (arr) {
+      var c = center === 'mean' ? mean(arr) : median(arr);
+      return arr.map(function (v) { return Math.abs(v - c); });
+    });
+    var an = oneWayAnova(z);
+    return { F: an.F, p: an.p, df1: an.df1, df2: an.df2, center: center };
+  }
+
+  /** Bartlett 方差齐性检验（假定正态） */
+  function bartlettTest(groups) {
+    var g = groups.filter(function (a) { return a && a.length >= 2; });
+    var k = g.length;
+    if (k < 2) return { chi2: NaN, p: NaN, df: NaN };
+    var N = 0, i;
+    var cnt = [], sp2 = [];
+    for (i = 0; i < k; i++) { cnt.push(g[i].length); sp2.push(variance(g[i])); N += g[i].length; }
+    for (i = 0; i < k; i++) if (sp2[i] <= 0) return { chi2: NaN, p: NaN, df: NaN };
+    var num = 0, den = 0;
+    for (i = 0; i < k; i++) {
+      num += (N - k) * Math.log(sp2[i]) * (cnt[i] - 1) / (N - k);
+      den += 1 / (cnt[i] - 1);
+    }
+    var s2 = 0;
+    for (i = 0; i < k; i++) s2 += (cnt[i] - 1) * sp2[i];
+    s2 /= (N - k);
+    var chi2 = ((N - k) * Math.log(s2) - num) / (1 + (den - 1 / (N - k)) / (3 * (k - 1)));
+    return { chi2: chi2, p: chi2Sf(chi2, k - 1), df: k - 1 };
+  }
+
+  /**
+   * 单因素重复测量方差分析
+   * @param {number[][]} rows 每个受试者一行，各列为一个处理条件（须完整，无缺失）
+   */
+  function rmAnova(rows) {
+    var m = rows.filter(function (r) {
+      return r && r.length >= 2 && r.every(function (v) { return isFinite(v); });
+    });
+    var k = rows.length ? rows[0].length : 0;
+    m = m.filter(function (r) { return r.length === k; });
+    var nSub = m.length;
+    if (nSub < 2 || k < 2) return { F: NaN, p: NaN, df1: k - 1, df2: NaN, nSub: nSub, k: k };
+    var grand = 0, N = nSub * k, i, j;
+    for (i = 0; i < nSub; i++) for (j = 0; j < k; j++) grand += m[i][j];
+    grand /= N;
+    var ssCond = 0, ssSub = 0, ssTot = 0;
+    var condMean = new Array(k).fill(0), subMean = new Array(nSub).fill(0);
+    for (i = 0; i < nSub; i++) {
+      for (j = 0; j < k; j++) {
+        ssTot += (m[i][j] - grand) * (m[i][j] - grand);
+        condMean[j] += m[i][j];
+        subMean[i] += m[i][j];
+      }
+      subMean[i] /= k;
+    }
+    for (j = 0; j < k; j++) { condMean[j] /= nSub; ssCond += nSub * (condMean[j] - grand) * (condMean[j] - grand); }
+    for (i = 0; i < nSub; i++) ssSub += k * (subMean[i] - grand) * (subMean[i] - grand);
+    var ssErr = ssTot - ssCond - ssSub;
+    var df1 = k - 1, df2 = (nSub - 1) * (k - 1);
+    var msC = ssCond / df1, msE = ssErr / df2;
+    var F = msE > 0 ? msC / msE : NaN;
+    return {
+      F: F, p: isFinite(F) ? fTestP(F, df1, df2) : NaN,
+      df1: df1, df2: df2, nSub: nSub, k: k,
+      condMean: condMean, msErr: msE, ssCond: ssCond, ssSub: ssSub, ssErr: ssErr, ssTot: ssTot
+    };
+  }
+
+  /** Friedman 检验（重复测量的非参数替代） */
+  function friedmanTest(rows) {
+    var k = rows.length ? rows[0].length : 0;
+    var m = rows.filter(function (r) {
+      return r && r.length === k && r.every(function (v) { return isFinite(v); });
+    });
+    var nSub = m.length;
+    if (nSub < 2 || k < 2) return { chi2: NaN, p: NaN, df: k - 1, nSub: nSub };
+    var rs = new Array(k).fill(0), i, j;
+    for (i = 0; i < nSub; i++) {
+      var rk = rank(m[i].slice());
+      for (j = 0; j < k; j++) rs[j] += rk[j];
+    }
+    var chi2 = 0;
+    for (j = 0; j < k; j++) chi2 += rs[j] * rs[j];
+    chi2 = 12 / (nSub * k * (k + 1)) * chi2 - 3 * nSub * (k + 1);
+    return { chi2: chi2, p: chi2Sf(chi2, k - 1), df: k - 1, nSub: nSub, rankSum: rs };
+  }
+
+  /**
+   * Dunn 事后检验（Kruskal-Wallis 之后的两两比较）
+   * @returns {Array} [{i,j,z,p}]
+   */
+  function dunnTest(groups) {
+    var g = groups.filter(function (a) { return a && a.length; });
+    var N = 0, i;
+    g.forEach(function (a) { N += a.length; });
+    var all = [];
+    g.forEach(function (a) { a.forEach(function (v) { all.push(v); }); });
+    var ties = {}, tieSum = 0;
+    all.forEach(function (v) { ties[v] = (ties[v] || 0) + 1; });
+    Object.keys(ties).forEach(function (k) { var t = ties[k]; tieSum += t * t * t - t; });
+    var tieCorr = 1 - tieSum / (N * N * N - N);
+    var rk = rank(all), off = 0, meanRank = [];
+    g.forEach(function (a) {
+      var s = 0;
+      for (i = 0; i < a.length; i++) s += rk[off + i];
+      off += a.length;
+      meanRank.push(s / a.length);
+    });
+    var out = [];
+    for (i = 0; i < g.length; i++) {
+      for (var j = i + 1; j < g.length; j++) {
+        var n1 = g[i].length, n2 = g[j].length;
+        var se = Math.sqrt((N * (N + 1) / 12 - tieSum / (12 * (N - 1))) * (1 / n1 + 1 / n2));
+        if (tieCorr > 0) se = Math.sqrt(Math.max(1e-12, (N * (N + 1) / 12) * (1 / n1 + 1 / n2)));
+        var z = se > 0 ? (meanRank[i] - meanRank[j]) / se : 0;
+        out.push({ i: i, j: j, z: z, p: 2 * (1 - pnorm(Math.abs(z))) });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 学生化极差分布上尾概率 P(Q ≥ q)（Tukey HSD 用）
+   * Q = (max X_i − min X_i) / S，S = sqrt(χ²_df/df)
+   * P(Q ≥ q) = 1 − k·∫∫ φ(x)[Φ(x)−Φ(x−q·s)]^(k−1) f_S(s) dx ds
+   */
+  function studentizedRangeSf(q, k, df) {
+    if (!isFinite(q) || q <= 0 || k < 2) return 1;
+    /* 内积分：给定 S = s 时的条件概率 P(range ≤ q·s | s)
+       = k·∫ φ(x)·[Φ(x) − Φ(x − q·s)]^(k−1) dx */
+    function inner(s) {
+      var n = 400, a = -12, b = 12, h = (b - a) / n, sum = 0;
+      function f(x) {
+        var d = pnorm(x) - pnorm(x - q * s);
+        if (d <= 0) return 0;
+        return Math.exp(-x * x / 2) * Math.pow(d, k - 1);
+      }
+      sum = f(a) + f(b);
+      for (var i = 1; i < n; i++) sum += f(a + i * h) * (i % 2 ? 4 : 2);
+      return k * sum * h / 3 / Math.sqrt(2 * Math.PI);
+    }
+    /* σ 已知（df → ∞）的极限情形：S ≡ 1 */
+    if (df > 1e6) return Math.max(0, Math.min(1, 1 - inner(1)));
+    /* S = sqrt(χ²_df/df) 的密度：由 c = df·s²，c ~ χ²_df 变换得到 */
+    function chiS(s) {
+      var c = df * s * s;
+      return Math.exp(Math.LN2 + (df / 2) * Math.log(df) + (df - 1) * Math.log(s)
+        - df * s * s / 2 - (df / 2) * Math.LN2 - gammaln(df / 2)) * 1;
+    }
+    var sLo = Math.max(1e-4, 1 - 10 / Math.sqrt(df));
+    var sHi = 1 + 10 / Math.sqrt(df) + 1e-9;
+    function outer(s) { return inner(s) * chiS(s); }
+    var m = 200, hh = (sHi - sLo) / m, tot = outer(sLo) + outer(sHi);
+    for (var i = 1; i < m; i++) tot += outer(sLo + i * hh) * (i % 2 ? 4 : 2);
+    var cdf = Math.max(0, Math.min(1, tot * hh / 3));
+    return Math.max(0, Math.min(1, 1 - cdf));
+  }
+
+  /** 学生化极差分位数 q_{α}(k, df)（上尾 α） */
+  function qTukey(alpha, k, df) {
+    var lo = 0, hi = 40;
+    for (var i = 0; i < 90; i++) {
+      var mid = (lo + hi) / 2;
+      if (studentizedRangeSf(mid, k, df) > alpha) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  /**
+   * Tukey HSD 事后检验（假定方差齐性，使用 ANOVA 的合并均方）
+   * @returns {Array} [{i,j,diff,q,p,ciLow,ciHigh}]
+   */
+  function tukeyHSD(groups, alpha) {
+    alpha = alpha || 0.05;
+    var g = groups.filter(function (a) { return a && a.length >= 2; });
+    var an = oneWayAnova(g);
+    var out = [], i, j;
+    if (!isFinite(an.df2) || an.df2 <= 0) return out;
+    var qt = qTukey(alpha, g.length, an.df2);
+    for (i = 0; i < g.length; i++) {
+      for (j = i + 1; j < g.length; j++) {
+        var di = mean(g[i]) - mean(g[j]);
+        var se = Math.sqrt((an.ssw / an.df2) * (1 / (2)) * (1 / g[i].length + 1 / g[j].length));
+        if (se <= 0) continue;
+        var q = Math.abs(di) / se;
+        out.push({
+          i: i, j: j, diff: di, q: q,
+          p: studentizedRangeSf(q, g.length, an.df2),
+          ciLow: di - qt * se / Math.SQRT2, ciHigh: di + qt * se / Math.SQRT2
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 列联表卡方独立性检验
+   * @param {number[][]} table 观测频数矩阵（不含行列合计）
+   * @param {boolean} yates 2×2 时是否做 Yates 连续性校正
+   */
+  function chiSquareIndependence(table, yates) {
+    var R = table.length, C = table[0].length, r, c;
+    var rowSum = new Array(R).fill(0), colSum = new Array(C).fill(0), N = 0;
+    for (r = 0; r < R; r++) {
+      for (c = 0; c < C; c++) {
+        rowSum[r] += table[r][c]; colSum[c] += table[r][c]; N += table[r][c];
+      }
+    }
+    if (!N) return { chi2: NaN, p: NaN, df: (R - 1) * (C - 1) };
+    var chi2 = 0, minExp = Infinity;
+    for (r = 0; r < R; r++) {
+      for (c = 0; c < C; c++) {
+        var e = rowSum[r] * colSum[c] / N;
+        if (e < minExp) minExp = e;
+        var d = Math.abs(table[r][c] - e);
+        if (yates && R === 2 && C === 2) d = Math.max(0, d - 0.5);
+        chi2 += e > 0 ? d * d / e : 0;
+      }
+    }
+    var dfv = (R - 1) * (C - 1);
+    return { chi2: chi2, p: chi2Sf(chi2, dfv), df: dfv, expected: minExp, n: N, minExpected: minExp };
+  }
+
+  /** Fisher 精确检验（2×2，双侧 / 单侧） */
+  function fisherExact(a11, a12, a21, a22, alt) {
+    var n1 = a11 + a12, n2 = a21 + a22, c1 = a11 + a21, N = n1 + n2;
+    if (!N) return { p: NaN };
+    /* 超几何：总体 N 中第一类占 n1（成功），抽 c1 个，观察到 a11 个成功 */
+    var hg = hypergeomTest(a11, n1, n2, c1, alt === 'less' ? 'less' : (alt === 'greater' ? 'greater' : 'two.sided'));
+    var expected = [[c1 * n1 / N, c1 * n2 / N], [(N - c1) * n1 / N, (N - c1) * n2 / N]];
+    var minExp = Math.min(expected[0][0], expected[0][1], expected[1][0], expected[1][1]);
+    return { p: hg.p, oddsRatio: hg.oddsRatio, minExpected: minExp, expected: expected };
+  }
+
   WB.stats = {
     gammaln: gammaln, logChoose: logChoose, choose: choose, betai: betai, pnorm: pnorm, erf: erf,
     gammaP: gammaP, chi2Sf: chi2Sf, fTestP: fTestP,
@@ -854,6 +1295,14 @@
     wilcoxonRankSum: wilcoxonRankSum, welchTTest: welchTTest, studentTTest: studentTTest,
     oneWayAnova: oneWayAnova, kruskalWallis: kruskalWallis,
     kaplanMeier: kaplanMeier, logRankTest: logRankTest, invertMatrix: invertMatrix,
+    /* --- 扩展检验 --- */
+    invTDist: invTDist, invNorm: invNorm, linearRegression: linearRegression,
+    oneSampleTTest: oneSampleTTest, pairedTTest: pairedTTest, wilcoxonSignedRank: wilcoxonSignedRank,
+    shapiroWilk: shapiroWilk, dagostinoPearson: dagostinoPearson,
+    leveneTest: leveneTest, bartlettTest: bartlettTest,
+    rmAnova: rmAnova, friedmanTest: friedmanTest,
+    dunnTest: dunnTest, tukeyHSD: tukeyHSD, studentizedRangeSf: studentizedRangeSf, qTukey: qTukey,
+    chiSquareIndependence: chiSquareIndependence, fisherExact: fisherExact,
     pAdjust: pAdjust,
     sum: sum, mean: mean, variance: variance, stdev: stdev, median: median, quantile: quantile,
     min: min, max: max, range: range, rank: rank,

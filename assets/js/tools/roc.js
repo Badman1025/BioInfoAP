@@ -558,10 +558,10 @@
     [0, 0.2, 0.4, 0.6, 0.8, 1].forEach(function (t) {
       root.appendChild(S('line', { x1: sx(t), y1: m.t, x2: sx(t), y2: m.t + plot, stroke: WB.plot.GRID }));
       root.appendChild(WB.plot.txt(sx(t), m.t + plot + 17, t.toFixed(1),
-        { 'text-anchor': 'middle', 'font-size': 10.5, fill: WB.plot.MUTED }));
+        { 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
       root.appendChild(S('line', { x1: m.l, y1: sy(t), x2: m.l + plot, y2: sy(t), stroke: WB.plot.GRID }));
-      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 3.5, t.toFixed(1),
-        { 'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 4, t.toFixed(1),
+        { 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
 
     /* 随机猜测参考线 */
@@ -592,9 +592,9 @@
       x: m.l, y: m.t, width: plot, height: plot, fill: 'none', stroke: WB.plot.AXIS
     }));
     root.appendChild(WB.plot.txt(m.l + plot / 2, H - 18, '1 − ' + T('特异度'),
-      { 'text-anchor': 'middle', 'font-size': 12.5, fill: WB.plot.TEXT }));
+      { 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT }));
     var yl = WB.plot.txt(0, 0, T('灵敏度'),
-      { 'text-anchor': 'middle', 'font-size': 12.5, fill: WB.plot.TEXT, transform: 'rotate(-90)' });
+      { 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT, transform: 'rotate(-90)' });
     yl.setAttribute('x', -(m.t + plot / 2));
     yl.setAttribute('y', 16);
     root.appendChild(yl);

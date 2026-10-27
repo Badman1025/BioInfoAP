@@ -102,7 +102,28 @@
     '未解析到有效数据，请检查输入格式': 'No valid data could be parsed — please check the input format.',
     '有效变量不足 2 个（每个变量至少需要 {n} 个数值）。若数据含分组列（如 Group），请删除该列后重试。':
       'Fewer than 2 valid variables (each variable needs at least {n} numeric values). ' +
-      'If your data contains a grouping column (e.g. Group), remove it and retry.'
+      'If your data contains a grouping column (e.g. Group), remove it and retry.',
+
+    /* 置信区间 / 预测区间 */
+    '显示 95% 置信带（回归均值）': 'Show 95% confidence band (mean response)',
+    '显示 95% 预测带（单个新观测）': 'Show 95% prediction band (single new observation)',
+    '95% 置信带': '95% confidence band',
+    '95% 预测带': '95% prediction band',
+    '回归线': 'Regression line',
+    ['灰色阴影为<b>回归均值的 95% 置信带</b>（真值回归线落在该带内的概率为 95%），浅色阴影为<b>单个新观测的 95% 预测带</b>' +
+      '（未来一次观测落在该带内的概率为 95%，因此比置信带宽得多）。两者都由 OLS 标准误经 t(df = n − 2) 分位数给出。']:
+      'The grey band is the <b>95% confidence band for the mean response</b> (95% probability that the true regression line lies within it) and the lighter band is the <b>95% prediction band for a single new observation</b> ' +
+      '(95% probability that a future observation falls inside it, hence much wider). Both come from the OLS standard errors with the t(df = n − 2) quantile.',
+    '可拖拽平移、滚轮缩放；点击「重置视图」回到适合导出的自适应比例。':
+      'Drag to pan and scroll to zoom; press “Reset view” to return to the auto-fit scale used for export.',
+    '重置视图': 'Reset view',
+    ['画布尺寸按节点数自适应缩放，布局后整幅图等比「贴合」到绘图区，因此节点与标签不会溢出；' +
+      '标签采用四方位贪心避让，确实无法避开的节点才省略标签（此时仍可通过悬停查看）。']:
+      'The canvas scales with the number of nodes and the layout is then fitted to the drawing area, so neither nodes nor labels overflow. ' +
+      'Labels are placed greedily among four candidate positions around their node; only labels that cannot be placed anywhere are omitted (still available on hover).',
+    '另有 {n} 个变量与任何变量的相关系数都低于阈值，未在网络中显示。':
+      'Another {n} variable(s) correlate below the cutoff with every other variable and are not shown.',
+    '节点 / 连线': 'Nodes / edges'
   });
 
   var FORMATS = [
@@ -154,7 +175,10 @@
           if (i === j) continue;
           var dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
           var d2 = dx * dx + dy * dy;
-          if (d2 < 1e-6) { dx = (Math.random() - 0.5); dy = (Math.random() - 0.5); d2 = 1e-3; }
+          if (d2 < 1e-6) {
+            /* 退化情形（完全重合）用确定性的微扰，保证每次出图一致 */
+            dx = Math.cos(i * 2.399963) * 0.5; dy = Math.sin(i * 2.399963) * 0.5; d2 = 1e-3;
+          }
           var d = Math.sqrt(d2);
           var rep = k * k / d;
           fx += dx / d * rep; fy += dy / d * rep;
@@ -246,7 +270,9 @@
           },
           { key: 'lower', label: '仅显示下三角', type: 'checkbox', value: false },
           { key: 'netThresh', label: '网络连线阈值 |r| ≥', type: 'number', value: 0.6, min: 0.1, max: 0.99, step: 0.05 },
-          { key: 'minValid', label: '每个变量最少有效样本数', type: 'number', value: 3, min: 3, max: 1000, step: 1 }
+          { key: 'minValid', label: '每个变量最少有效样本数', type: 'number', value: 3, min: 3, max: 1000, step: 1 },
+          { key: 'showCI', label: '显示 95% 置信带（回归均值）', type: 'checkbox', value: true },
+          { key: 'showPI', label: '显示 95% 预测带（单个新观测）', type: 'checkbox', value: true }
         ],
         runLabel: '计算相关性',
         onRun: function (ctx) {
@@ -422,13 +448,19 @@
               x: cols[ia].values, y: cols[ib].values,
               xName: cols[ia].name, yName: cols[ib].name,
               r: r.r, p: r.p, method: method,
-              sampleIds: m.rowNames
+              sampleIds: m.rowNames,
+              confidence: !!ctx.values.showCI,
+              prediction: !!ctx.values.showPI
             });
           }
           selA.addEventListener('change', redrawScatter);
           selB.addEventListener('change', redrawScatter);
           redrawScatter();
           WB.plot.addToolbar(scBody, { getSvg: function () { return lastScSvg; }, basename: 'correlation_scatter' });
+          scBody.appendChild(el('div.preview-note', {
+            text: T('灰色阴影为<b>回归均值的 95% 置信带</b>（真值回归线落在该带内的概率为 95%），浅色阴影为<b>单个新观测的 95% 预测带</b>' +
+              '（未来一次观测落在该带内的概率为 95%，因此比置信带宽得多）。两者都由 OLS 标准误经 t(df = n − 2) 分位数给出。')
+          }));
 
           /* ---- 网络 ---- */
           var netCard = WB.ui.resultCard(T('相关性网络（|r| ≥ {t}）', { t: ctx.values.netThresh }));
@@ -438,17 +470,35 @@
           if (!edges.length) {
             WB.plot.emptyState(nBody, T('corr.noThreshold'));
           } else {
-            var nodes = cols.map(function (c) { return { name: c.name, deg: 0 }; });
+            var allNodes = cols.map(function (c) { return { name: c.name, deg: 0 }; });
             var idxOf = {};
-            nodes.forEach(function (nd, i) { idxOf[nd.name] = i; });
+            allNodes.forEach(function (nd, i) { idxOf[nd.name] = i; });
             var eList = edges.map(function (p) {
               return { a: idxOf[p.a], b: idxOf[p.b], r: p.r, w: Math.abs(p.r) };
             });
-            eList.forEach(function (e) { nodes[e.a].deg++; nodes[e.b].deg++; });
+            eList.forEach(function (e) { allNodes[e.a].deg++; allNodes[e.b].deg++; });
+            /* 只保留有连线的节点，孤立节点既不提供信息也会占用版面 */
+            var keep = allNodes.filter(function (nd) { return nd.deg > 0; });
+            var remap = {};
+            keep.forEach(function (nd, i) { remap[nd.name] = i; });
+            var nodes = keep.map(function (nd) { return { name: nd.name, deg: nd.deg }; });
+            var drawn = eList.map(function (e) {
+              return { a: remap[allNodes[e.a].name], b: remap[allNodes[e.b].name], r: e.r, w: Math.abs(e.r) };
+            });
             var netHolder = el('div.plot-holder');
             nBody.appendChild(netHolder);
-            var netSvg = drawNetwork(netHolder, nodes, eList);
+            var statN = WB.ui.statBar([
+              { label: T('节点 / 连线'), value: nodes.length + ' / ' + drawn.length },
+              { label: T('有效变量数'), value: cols.length }
+            ]);
+            nBody.insertBefore(statN, netHolder);
+            var netSvg = drawNetwork(netHolder, nodes, drawn);
             WB.plot.addToolbar(nBody, { getSvg: function () { return netSvg; }, basename: 'correlation_network' });
+            if (nodes.length < cols.length) {
+              nBody.appendChild(el('div.preview-note', {
+                text: T('另有 {n} 个变量与任何变量的相关系数都低于阈值，未在网络中显示。', { n: cols.length - nodes.length })
+              }));
+            }
           }
 
           /* ---- 结果表 ---- */
@@ -474,15 +524,65 @@
       if (isFinite(cfg.x[i]) && isFinite(cfg.y[i])) pts.push({ x: cfg.x[i], y: cfg.y[i], id: cfg.sampleIds ? cfg.sampleIds[i] : '' });
     }
     if (pts.length < 2) { WB.plot.emptyState(container, T('有效配对观测不足')); return null; }
-    var W = 560, H = 420, m = { l: 62, r: 24, t: 22, b: 54 };
+    var W = 620, H = 460, m = { l: 66, r: 26, t: 24, b: 58 };
     var xs = pts.map(function (p) { return p.x; }), ys = pts.map(function (p) { return p.y; });
+    var reg = WB.stats.linearRegression(xs, ys);
     var xmin = Math.min.apply(null, xs), xmax = Math.max.apply(null, xs);
     var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
     var padx = (xmax - xmin) * 0.07 || 0.5, pady = (ymax - ymin) * 0.07 || 0.5;
     xmin -= padx; xmax += padx; ymin -= pady; ymax += pady;
 
+    /* 统计信息框：先算内容尺寸，再从四个角落里选不压点的位置；四角都有点则整体抬到绘图区上方 */
+    var slope = reg ? reg.slope : 0, inter = reg ? reg.intercept : NaN;
+    if (!isFinite(inter)) inter = WB.stats.mean(ys);
+    var showCI = !!cfg.confidence, showPI = !!cfg.prediction;
+    var boxLines = [
+      methodSymbol(cfg.method) + ' r = ' + WB.formatNum(cfg.r, 3),
+      T('corr.pn', { p: WB.pFormat(cfg.p), n: pts.length }),
+      'y = ' + WB.formatNum(slope, 3) + 'x + ' + WB.formatNum(inter, 3)
+    ];
+    if (reg) boxLines.push('R² = ' + WB.formatNum(reg.r2, 4));
+    if (showCI) boxLines.push(T('95% 置信带'));
+    if (showPI) boxLines.push(T('95% 预测带'));
+    var boxW = 186, boxH = 18 + boxLines.length * 16, boxPad = 10;
+    var hitsBox = function (x0, y0) {
+      var k = 0;
+      pts.forEach(function (p) {
+        var px = m.l + (p.x - xmin) / ((xmax - xmin) || 1) * (W - m.l - m.r);
+        var py = (H - m.b) - (p.y - ymin) / ((ymax - ymin) || 1) * (H - m.b - m.t);
+        if (px > x0 - boxPad && px < x0 + boxW + boxPad && py > y0 - boxPad && py < y0 + boxH + boxPad) k++;
+      });
+      return k;
+    };
+    var cands = [
+      [W - m.r - boxW - 6, m.t + 8],
+      [m.l + 6, m.t + 8],
+      [W - m.r - boxW - 6, H - m.b - boxH - 8],
+      [m.l + 6, H - m.b - boxH - 8]
+    ];
+    var best = 0;
+    for (var bi = 1; bi < cands.length; bi++) {
+      if (hitsBox(cands[bi][0], cands[bi][1]) < hitsBox(cands[best][0], cands[best][1])) best = bi;
+    }
+    var boxX, boxY;
+    if (hitsBox(cands[best][0], cands[best][1]) === 0) {
+      boxX = cands[best][0]; boxY = cands[best][1];
+    } else {
+      /* 四角都有点：信息框放到绘图区上方（画布同步加高），任何点都不会被盖住 */
+      var extraT = boxH + 16;
+      m.t += extraT; H += extraT;
+      boxX = W - m.r - boxW - 6; boxY = 8;
+    }
+
     var canvas = WB.plot.createSVG(container, W, H, {});
     var root = canvas.root;
+    /* 绘图区裁剪：置信带 / 预测带与回归线超出坐标范围的部分被切除，不再溢出方框 */
+    var clipId = 'corrPlotClip' + (WB._clipSeq = (WB._clipSeq || 0) + 1);
+    var defs = S('defs', {});
+    var clip = S('clipPath', { id: clipId });
+    clip.appendChild(S('rect', { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b }));
+    defs.appendChild(clip);
+    root.appendChild(defs);
     var sx = WB.plot.linearScale(xmin, xmax, m.l, W - m.r);
     var sy = WB.plot.linearScale(ymin, ymax, H - m.b, m.t);
     var X = function (v) { return sx(v); }, Y = function (v) { return sy(v); };
@@ -490,24 +590,48 @@
     sx.ticks(6).forEach(function (t) {
       if (t < xmin || t > xmax) return;
       root.appendChild(S('line', { x1: X(t), y1: m.t, x2: X(t), y2: H - m.b, stroke: WB.plot.GRID }));
-      root.appendChild(WB.plot.txt(X(t), H - m.b + 16, WB.formatNum(t, 3), { 'text-anchor': 'middle', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      root.appendChild(WB.plot.txt(X(t), H - m.b + 18, WB.formatNum(t, 3), { 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
     sy.ticks(6).forEach(function (t) {
       if (t < ymin || t > ymax) return;
       root.appendChild(S('line', { x1: m.l, y1: Y(t), x2: W - m.r, y2: Y(t), stroke: WB.plot.GRID }));
-      root.appendChild(WB.plot.txt(m.l - 7, Y(t) + 3.5, WB.formatNum(t, 3), { 'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      root.appendChild(WB.plot.txt(m.l - 7, Y(t) + 4, WB.formatNum(t, 3), { 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
     root.appendChild(S('rect', { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: 'none', stroke: WB.plot.AXIS }));
 
-    // 回归线
-    var xm = WB.stats.mean(xs), ym = WB.stats.mean(ys);
-    var sxy = 0, sxx = 0;
-    pts.forEach(function (p) { sxy += (p.x - xm) * (p.y - ym); sxx += (p.x - xm) * (p.x - xm); });
-    var slope = sxx ? sxy / sxx : 0, inter = ym - slope * xm;
+    // 回归线与置信带 / 预测带（OLS + t 分布，df = n − 2）
     var lx1 = xmin, lx2 = xmax;
+    var tCrit = 0;
+    if (showCI || showPI) {
+      tCrit = reg ? WB.stats.invTDist(reg.df, 0.05) : 0;
+    }
+    function bandPoints(seFn) {
+      var up = [], lo = [], N = 140;
+      for (var k = 0; k <= N; k++) {
+        var xv = lx1 + (lx2 - lx1) * k / N;
+        var yv = inter + slope * xv;
+        var hw = tCrit * seFn(xv);
+        up.push(X(xv).toFixed(1) + ',' + Y(yv + hw).toFixed(1));
+        lo.push(X(xv).toFixed(1) + ',' + Y(yv - hw).toFixed(1));
+      }
+      return up.concat(lo.reverse()).join(' ');
+    }
+    if (showPI && reg && isFinite(reg.mse)) {
+      root.appendChild(S('polygon', {
+        points: bandPoints(reg.sePred), fill: '#2f6fb3', 'fill-opacity': 0.10, stroke: 'none',
+        'clip-path': 'url(#' + clipId + ')'
+      }));
+    }
+    if (showCI && reg && isFinite(reg.mse)) {
+      root.appendChild(S('polygon', {
+        points: bandPoints(reg.seFit), fill: '#5a6a76', 'fill-opacity': 0.20, stroke: 'none',
+        'clip-path': 'url(#' + clipId + ')'
+      }));
+    }
     root.appendChild(S('line', {
       x1: X(lx1), y1: Y(inter + slope * lx1), x2: X(lx2), y2: Y(inter + slope * lx2),
-      stroke: '#d6483f', 'stroke-width': 1.8, 'stroke-dasharray': '6 4'
+      stroke: '#d6483f', 'stroke-width': 1.9,
+      'clip-path': 'url(#' + clipId + ')'
     }));
 
     pts.forEach(function (p) {
@@ -519,59 +643,311 @@
       });
     });
 
-    root.appendChild(WB.plot.txt(m.l + (W - m.l - m.r) / 2, H - 14, cfg.xName, { 'text-anchor': 'middle', 'font-size': 12, fill: WB.plot.TEXT }));
-    var yl = WB.plot.txt(0, 0, cfg.yName, { 'text-anchor': 'middle', 'font-size': 12, fill: WB.plot.TEXT, transform: 'rotate(-90)' });
+    root.appendChild(WB.plot.txt(m.l + (W - m.l - m.r) / 2, H - 12, cfg.xName, { 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT }));
+    var yl = WB.plot.txt(0, 0, cfg.yName, { 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT, transform: 'rotate(-90)' });
     yl.setAttribute('x', -(m.t + (H - m.t - m.b) / 2));
-    yl.setAttribute('y', 16);
+    yl.setAttribute('y', 18);
     root.appendChild(yl);
 
-    var boxW = 176, boxH = 66;
-    root.appendChild(S('rect', { x: W - m.r - boxW - 6, y: m.t + 8, width: boxW, height: boxH, rx: 7, fill: '#ffffff', stroke: WB.plot.AXIS, 'fill-opacity': 0.94 }));
-    root.appendChild(WB.plot.txt(W - m.r - boxW + 4, m.t + 28, methodSymbol(cfg.method) + ' r = ' + WB.formatNum(cfg.r, 3), { 'font-size': 12.5, 'font-weight': 700, fill: '#22303c' }));
-    root.appendChild(WB.plot.txt(W - m.r - boxW + 4, m.t + 45, T('corr.pn', { p: WB.pFormat(cfg.p), n: pts.length }), { 'font-size': 11.5, fill: WB.plot.MUTED }));
-    root.appendChild(WB.plot.txt(W - m.r - boxW + 4, m.t + 62, 'y = ' + WB.formatNum(slope, 3) + 'x + ' + WB.formatNum(inter, 3), { 'font-size': 11, fill: WB.plot.MUTED }));
+    /* boxLines / boxW / boxH / boxX / boxY 已在前面按避点策略计算并选定 */
+    root.appendChild(S('rect', {
+      x: boxX, y: boxY, width: boxW, height: boxH, rx: 7,
+      fill: '#ffffff', stroke: WB.plot.AXIS, 'fill-opacity': 0.94
+    }));
+    boxLines.forEach(function (ln, i) {
+      var swatch = null;
+      if (ln === T('95% 置信带') || ln === T('95% 预测带')) {
+        swatch = { fill: ln === T('95% 置信带') ? '#5a6a76' : '#2f6fb3', op: ln === T('95% 置信带') ? 0.28 : 0.14 };
+      }
+      var ty = boxY + 20 + i * 16;
+      if (swatch) {
+        root.appendChild(S('rect', { x: boxX + 6, y: ty - 8, width: 14, height: 10, rx: 2, fill: swatch.fill, 'fill-opacity': swatch.op, stroke: 'none' }));
+      }
+      root.appendChild(WB.plot.txt(boxX + (swatch ? 24 : 6), ty, ln, {
+        'font-size': (i === 0 ? 12.5 : 11), 'font-weight': (i === 0 ? 700 : 400),
+        fill: (i === 0 ? '#22303c' : WB.plot.MUTED)
+      }));
+    });
     return canvas.svg;
   }
 
+  /**
+   * 连通分量划分（edges 的 a/b 为节点下标）
+   * @returns {number[][]} 每个分量的节点下标列表
+   */
+  function components(nodes, edges) {
+    var parent = nodes.map(function (_, i) { return i; });
+    function find(x) { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+    edges.forEach(function (e) {
+      var ra = find(e.a), rb = find(e.b);
+      if (ra !== rb) parent[ra] = rb;
+    });
+    var map = {};
+    nodes.forEach(function (_, i) {
+      var r = find(i);
+      if (!map[r]) map[r] = [];
+      map[r].push(i);
+    });
+    return Object.keys(map).map(function (k) { return map[k]; });
+  }
+
+  /**
+   * 整图布局：
+   * ① 每个连通分量在自己的局部框里做力导向布局（互不干扰，避免大段空白）
+   * ② 分量按面积降序做货架式排布，铺满画布
+   * ③ 全局碰撞松弛：按节点半径把重叠的圆推开
+   */
+  function layoutGraph(nodes, edges, W, H) {
+    var comps = components(nodes, edges);
+    var total = nodes.length;
+    comps.sort(function (a, b) { return b.length - a.length; });
+
+    var gap = Math.max(28, Math.min(W, H) * 0.06);
+    var cursorX = 0, cursorY = 0, rowH = 0;
+    comps.forEach(function (comp) {
+      var frac = Math.sqrt(comp.length / total);
+      var bw = Math.max(80, (W - gap) * frac);
+      var bh = Math.max(80, (H - gap) * frac);
+      if (cursorX > 0 && cursorX + bw > W) { cursorX = 0; cursorY += rowH + gap; rowH = 0; }
+      /* 局部布局 */
+      var localIdx = {};
+      var subNodes = comp.map(function (gi, li) { localIdx[gi] = li; return nodes[gi]; });
+      var subEdges = [];
+      edges.forEach(function (e) {
+        if (localIdx[e.a] !== undefined && localIdx[e.b] !== undefined) {
+          subEdges.push({ a: localIdx[e.a], b: localIdx[e.b], w: e.w, r: e.r });
+        }
+      });
+      forceLayout(subNodes, subEdges, bw, bh, 420);
+      subNodes.forEach(function (nd) { nd.x += cursorX; nd.y += cursorY; });
+      cursorX += bw + gap;
+      rowH = Math.max(rowH, bh);
+    });
+
+    /* 碰撞松弛：把重叠的圆（含 15% 标签余量）沿连线推开 */
+    for (var it = 0; it < 80; it++) {
+      var moved = false;
+      for (var i = 0; i < nodes.length; i++) {
+        for (var j = i + 1; j < nodes.length; j++) {
+          var a = nodes[i], b = nodes[j];
+          var minD = (a.rad + b.rad) * 1.15 + 2;
+          var dx = b.x - a.x, dy = b.y - a.y;
+          var d = Math.sqrt(dx * dx + dy * dy) || 1e-3;
+          if (d < minD) {
+            var push = (minD - d) / 2;
+            var ux = dx / d, uy = dy / d;
+            a.x -= ux * push; a.y -= uy * push;
+            b.x += ux * push; b.y += uy * push;
+            moved = true;
+          }
+        }
+      }
+      if (!moved) break;
+    }
+    /* 收回到画布内 */
+    nodes.forEach(function (nd) {
+      nd.x = WB.clamp(nd.x, nd.rad + 4, W - nd.rad - 4);
+      nd.y = WB.clamp(nd.y, nd.rad + 4, H - nd.rad - 4);
+    });
+  }
+
+  /**
+   * 相关性网络
+   * · 画布尺寸按节点数自适应，布局后再等比贴合到绘图区 ⇒ 节点与标签不会溢出
+   * · 连通分量分别布局并排布，避免不连通子图之间的大段空白
+   * · 标签四方位贪心避让；确实放不下的省略（悬停仍可查看）
+   * · 支持鼠标拖拽平移与滚轮缩放；「重置视图」回到适合导出的自适应比例
+   */
   function drawNetwork(container, nodes, edges) {
-    var W = 660, H = 480;
+    var n = nodes.length;
+    if (!n) { WB.plot.emptyState(container, T('corr.noThreshold')); return null; }
+
+    /* 1) 画布：面积随节点数增长，并限制在合理范围内 */
+    var area = Math.max(660 * 480, n * n * 2600 + n * 5200);
+    var aspect = 1.5;
+    var H = Math.round(WB.clamp(Math.sqrt(area / aspect), 420, 1180));
+    var W = Math.round(WB.clamp(H * aspect, 660, 1560));
+    var m = { l: 40, r: 40, t: 34, b: 34 };
+
     var canvas = WB.plot.createSVG(container, W, H, {});
     var root = canvas.root;
-    forceLayout(nodes, edges, W, H, 320);
+    var scene = WB.plot.g({});
+    root.appendChild(scene);
 
-    var rampName = 'redblue';
-    var f = WB.plot.ramp(rampName);
+    /* 2) 布局（在贴合前的坐标系里进行） */
+    var rMax = Math.max.apply(null, nodes.map(function (nd) { return nd.deg; })) || 1;
+    var baseR = WB.clamp(560 / Math.sqrt(n + 8), 7, 17);
+    nodes.forEach(function (nd) { nd.rad = baseR + baseR * 1.25 * Math.sqrt(nd.deg / rMax); });
+    layoutGraph(nodes, edges, W - m.l - m.r, H - m.t - m.b);
+
+    /* 3) 把整幅图等比贴合到绘图区（含标签预留区域） */
+    var bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    nodes.forEach(function (nd) {
+      bx0 = Math.min(bx0, nd.x - nd.rad); bx1 = Math.max(bx1, nd.x + nd.rad);
+      by0 = Math.min(by0, nd.y - nd.rad); by1 = Math.max(by1, nd.y + nd.rad);
+    });
+    var gw = Math.max(1, bx1 - bx0), gh = Math.max(1, by1 - by0);
+    /* 水平方向额外预留标签宽度（约 8 个字符），垂直方向预留两行标签 */
+    var labPadX = Math.min(120, 8 * 6.4), labPadY = 22;
+    var availW = W - m.l - m.r - labPadX * 2, availH = H - m.t - m.b - labPadY * 2;
+    var sc = Math.min(availW / gw, availH / gh);
+    sc = WB.clamp(sc, 0.15, 3.2);
+    var tx = m.l + labPadX + (availW - gw * sc) / 2 - bx0 * sc;
+    var ty = m.t + labPadY + (availH - gh * sc) / 2 - by0 * sc;
+    function px(x) { return x * sc + tx; }
+    function py(y) { return y * sc + ty; }
+
+    var f = WB.plot.ramp('redblue');
+    var edgeGroup = WB.plot.g({});
+    var nodeGroup = WB.plot.g({});
+    scene.appendChild(edgeGroup);
+    scene.appendChild(nodeGroup);
+
     edges.forEach(function (e) {
       var a = nodes[e.a], b = nodes[e.b];
-      var t = (e.r + 1) / 2;
       var ln = S('line', {
-        x1: a.x, y1: a.y, x2: b.x, y2: b.y,
-        stroke: f(t), 'stroke-width': 1 + Math.abs(e.r) * 4.2,
+        x1: px(a.x), y1: py(a.y), x2: px(b.x), y2: py(b.y),
+        stroke: f((e.r + 1) / 2), 'stroke-width': (1 + Math.abs(e.r) * 4.2) * Math.max(0.7, Math.sqrt(sc)),
         'stroke-opacity': 0.62, 'stroke-linecap': 'round'
       });
-      root.appendChild(ln);
+      edgeGroup.appendChild(ln);
       WB.plot.bindTip(ln, function () {
-        return '<b>' + a.name + ' × ' + b.name + '</b><br>r = ' + WB.formatNum(e.r, 3) +
-          '<br>' + strengthText(e.r, true);
+        return '<b>' + WB.esc(a.name) + ' × ' + WB.esc(b.name) + '</b><br>r = ' + WB.formatNum(e.r, 3) +
+          '<br>' + strengthText(e.r);
       });
     });
-    var rMax = Math.max.apply(null, nodes.map(function (n) { return n.deg; })) || 1;
+
     nodes.forEach(function (nd) {
-      var rad = 9 + 13 * Math.sqrt(nd.deg / rMax);
-      root.appendChild(S('circle', {
-        cx: nd.x, cy: nd.y, r: rad,
-        fill: '#2f6fb3', 'fill-opacity': 0.16, stroke: '#2f6fb3', 'stroke-width': 1.6
-      }));
-      var label = WB.plot.txt(nd.x, nd.y - rad - 6, nd.name, {
-        'text-anchor': 'middle', 'font-size': 11.5, 'font-weight': 600, fill: WB.plot.TEXT
+      var cx = px(nd.x), cy = py(nd.y), rad = nd.rad * sc;
+      var dd = Math.max(2.4, rad);
+      var circle = S('circle', {
+        cx: cx, cy: cy, r: dd,
+        fill: '#2f6fb3', 'fill-opacity': Math.max(0.10, 0.16 * Math.min(1, sc)),
+        stroke: '#2f6fb3', 'stroke-width': Math.max(1, 1.6 * Math.min(1.4, sc))
       });
-      label.setAttribute('paint-order', 'stroke');
-      label.setAttribute('stroke', '#ffffff');
-      label.setAttribute('stroke-width', '3');
-      root.appendChild(label);
+      nodeGroup.appendChild(circle);
+      nd._cx = cx; nd._cy = cy; nd._r = dd;
+      WB.plot.bindTip(circle, function () {
+        return '<b>' + WB.esc(nd.name) + '</b><br>' + T('common.members') + ' ' + nd.deg;
+      });
     });
+
+    /* 4) 标签避让：按度降序优先安放，四方位候选 */
+    function textWidth(s, fs) {
+      var w = 0;
+      for (var i = 0; i < s.length; i++) w += /[\u4e00-\u9fa5\uff00-\uffef]/.test(s[i]) ? fs : fs * 0.56;
+      return w;
+    }
+    var fs = WB.clamp(11 * sc, 9.5, 13);
+    var placed = [];
+    function overlaps(x0, y0, x1, y1) {
+      for (var i = 0; i < placed.length; i++) {
+        var p = placed[i];
+        if (x0 < p.x1 && x1 > p.x0 && y0 < p.y1 && y1 > p.y0) return true;
+      }
+      return false;
+    }
+    var labelGroup = WB.plot.g({});
+    scene.appendChild(labelGroup);
+    var hiddenLabels = 0;
+    nodes.slice().sort(function (a, b) { return b.deg - a.deg; }).forEach(function (nd) {
+      var raw = String(nd.name);
+      var names = [
+        raw.length > 14 ? raw.slice(0, 13) + '…' : raw,
+        raw.length > 9 ? raw.slice(0, 8) + '…' : raw
+      ];
+      var done = false;
+      for (var ti = 0; ti < names.length && !done; ti++) {
+        var s = names[ti];
+        var w = textWidth(s, fs), h = fs * 1.15;
+        var cands = [
+          { ax: 'middle', dx: 0, dy: -(nd._r + 4 + h) },
+          { ax: 'middle', dx: 0, dy: (nd._r + 4 + h * 0.35) },
+          { ax: 'start', dx: nd._r + 5, dy: h * 0.35 },
+          { ax: 'end', dx: -(nd._r + 5), dy: h * 0.35 }
+        ];
+        for (var ci = 0; ci < cands.length; ci++) {
+          var c = cands[ci];
+          var x = nd._cx + c.dx, y = nd._cy + c.dy;
+          var x0 = c.ax === 'middle' ? x - w / 2 : (c.ax === 'start' ? x : x - w);
+          var x1 = x0 + w, y0 = y - h * 0.85, y1 = y + h * 0.25;
+          if (x0 < 2 || x1 > W - 2 || y0 < 2 || y1 > H - 2) continue;
+          if (overlaps(x0 - 1, y0 - 1, x1 + 1, y1 + 1)) continue;
+          var lab = WB.plot.txt(x, y, s, {
+            'text-anchor': c.ax, 'font-size': fs, 'font-weight': 600, fill: WB.plot.TEXT
+          });
+          lab.setAttribute('paint-order', 'stroke');
+          lab.setAttribute('stroke', '#ffffff');
+          lab.setAttribute('stroke-width', '3');
+          labelGroup.appendChild(lab);
+          placed.push({ x0: x0, y0: y0, x1: x1, y1: y1 });
+          done = true;
+          break;
+        }
+      }
+      if (!done) hiddenLabels++;
+    });
+
+    /* 5) 图例画在图内右下角，导出时不丢失 */
+    var lgItems = [{ color: '#c0392b', label: T('common.positive') }, { color: '#2f6fb3', label: T('common.negative') }];
+    var lgW = 0;
+    lgItems.forEach(function (it) { lgW = Math.max(lgW, textWidth(it.label, 10.5)); });
+    lgW += 30;
+    var lgH = lgItems.length * 16 + 10;
+    var lgX = W - m.r - lgW - 4, lgY = H - m.b - lgH - 4;
+    var lg = WB.plot.g({});
+    root.appendChild(lg);
+    lg.appendChild(S('rect', { x: lgX, y: lgY, width: lgW, height: lgH, rx: 6, fill: '#ffffff', 'fill-opacity': 0.9, stroke: WB.plot.AXIS }));
+    lgItems.forEach(function (it, i) {
+      var y = lgY + 14 + i * 16;
+      lg.appendChild(S('line', { x1: lgX + 8, y1: y, x2: lgX + 24, y2: y, stroke: it.color, 'stroke-width': 2.6, 'stroke-linecap': 'round' }));
+      lg.appendChild(WB.plot.txt(lgX + 28, y + 3.6, it.label, { 'font-size': 10.5, fill: WB.plot.TEXT }));
+    });
+
+    /* 6) 交互：拖拽平移 + 滚轮缩放（「重置视图」回到贴合比例） */
+    var view = { k: 1, x: 0, y: 0 };
+    function applyView() {
+      scene.setAttribute('transform', 'translate(' + view.x.toFixed(2) + ',' + view.y.toFixed(2) + ') scale(' + view.k.toFixed(4) + ')');
+    }
+    function resetView() { view = { k: 1, x: 0, y: 0 }; applyView(); }
+    applyView();
+    var dragging = null;
+    canvas.svg.addEventListener('mousedown', function (e) {
+      dragging = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y };
+      e.preventDefault();
+    });
+    window.addEventListener('mouseup', function () { dragging = null; });
+    window.addEventListener('mousemove', function (e) {
+      if (!dragging) return;
+      var r = canvas.svg.getBoundingClientRect();
+      var k2 = canvas.svg.viewBox.baseVal.width / r.width || 1;
+      view.x = dragging.ox + (e.clientX - dragging.sx) * k2;
+      view.y = dragging.oy + (e.clientY - dragging.sy) * k2;
+      applyView();
+    });
+    canvas.svg.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      var r = canvas.svg.getBoundingClientRect();
+      var k2 = canvas.svg.viewBox.baseVal.width / r.width || 1;
+      var mx = (e.clientX - r.left) * k2, my = (e.clientY - r.top) * k2;
+      var factor = e.deltaY > 0 ? 0.9 : 1.1;
+      var nk = WB.clamp(view.k * factor, 0.25, 12);
+      view.x = mx - (mx - view.x) * (nk / view.k);
+      view.y = my - (my - view.y) * (nk / view.k);
+      view.k = nk;
+      applyView();
+    }, { passive: false });
+
+    var bar = el('div.format-actions', [
+      el('button.btn.btn-ghost.btn-xs', { text: T('重置视图'), onclick: resetView })
+    ]);
+    container.appendChild(bar);
+    container.appendChild(el('div.preview-note', { text: T('corr.netNote') }));
     container.appendChild(el('div.preview-note', {
-      text: T('corr.netNote')
+      text: T('画布尺寸按节点数自适应缩放，布局后整幅图等比「贴合」到绘图区，因此节点与标签不会溢出；' +
+        '标签采用四方位贪心避让，确实无法避开的节点才省略标签（此时仍可通过悬停查看）。') +
+        (hiddenLabels ? '（' + hiddenLabels + ' / ' + n + '）' : '') +
+        ' ' + T('可拖拽平移、滚轮缩放；点击「重置视图」回到适合导出的自适应比例。')
     }));
     return canvas.svg;
   }

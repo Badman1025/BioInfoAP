@@ -341,7 +341,42 @@
 
   var DIFFEXP = buildDiffexp();
 
-  /* ------------------------- 8. 生存分析示例 ---------------------------- */
+  /* ------------------------- 8. 网络图示例（共表达模块） ---------------- */
+
+  function buildNetwork() {
+    var rng = makeRng(90210);
+    var mods = [
+      { name: 'Cell cycle', genes: 'MKI67 CCNB1 CCNA2 CDK1 AURKA BUB1 TOP2A PLK1 RRM2 TYMS'.split(' ') },
+      { name: 'Immune', genes: 'CD3D CD8A PDCD1 LAG3 TIGIT IFNG GZMB NKG7'.split(' ') },
+      { name: 'ECM', genes: 'COL1A1 COL3A1 FN1 VIM TWIST1 SNAI1 ZEB1'.split(' ') }
+    ];
+    var edges = ['Source\tTarget\tWeight\tType'];
+    mods.forEach(function (m) {
+      for (var i = 0; i < m.genes.length; i++) {
+        for (var j = i + 1; j < m.genes.length; j++) {
+          if (rng.u() < 0.55) {
+            var w = 0.62 + rng.u() * 0.33;
+            edges.push([m.genes[i], m.genes[j], w.toFixed(3), 'positive'].join('\t'));
+          }
+        }
+      }
+    });
+    /* 模块之间的负相关（细胞周期 vs 免疫、免疫 vs ECM 等） */
+    [['MKI67', 'CD3D'], ['TOP2A', 'CD8A'], ['PLK1', 'IFNG'],
+      ['CD3D', 'COL1A1'], ['CD8A', 'VIM'], ['FN1', 'CCNB1'], ['VIM', 'AURKA'], ['TWIST1', 'NKG7']
+    ].forEach(function (p) {
+      edges.push([p[0], p[1], (-(0.48 + rng.u() * 0.2)).toFixed(3), 'negative'].join('\t'));
+    });
+    var nodes = ['Node\tGroup'];
+    mods.forEach(function (m) {
+      m.genes.forEach(function (g) { nodes.push(g + '\t' + m.name); });
+    });
+    return { edges: edges.join('\n'), nodes: nodes.join('\n') };
+  }
+
+  var NETWORK = buildNetwork();
+
+  /* ------------------------- 9. 生存分析示例 ---------------------------- */
 
   function buildSurvival() {
     var rng = makeRng(31415926);
@@ -365,7 +400,7 @@
     return rows.join('\n');
   }
 
-  /* ---------------------- 9. 序列与蛋白工具示例 ------------------------- */
+  /* ---------------------- 10. 序列与蛋白工具示例 ------------------------- */
 
   function wrapSeq(s, w) {
     var out = [];
@@ -403,7 +438,7 @@
     ].join('\n');
   }
 
-  /* -------------------------- 10. ROC 分析示例 -------------------------- */
+  /* -------------------------- 11. ROC 分析示例 -------------------------- */
 
   function buildROC() {
     var rng = makeRng(60606060);
@@ -423,7 +458,7 @@
     return rows.join('\n');
   }
 
-  /* --------------------- 11. 去重与唯一化示例 --------------------------- */
+  /* --------------------- 12. 去重与唯一化示例 --------------------------- */
 
   function buildUnique() {
     // 刻意包含三类常见问题：完全重复行、同一基因对应多个探针、大小写/空白不一致
@@ -462,6 +497,108 @@
       .concat(data.map(function (r) { return r.join('\t'); })).join('\n');
   }
 
+  /* ----------------- 13. 小提琴图示例（三列，每列 24 个观测） -------------- */
+
+  function buildViolin() {
+    var rng = makeRng(70707070);
+    var mus = [7.20, 10.00, 8.20], sds = [0.55, 0.62, 0.48];
+    var n = 24;
+    var cols = mus.map(function (mu, gi) {
+      var out = [];
+      for (var i = 0; i < n; i++) out.push(rng.n(mus[gi], sds[gi]));
+      return out;
+    });
+    var rows = ['SampleID\tControl\tTreated\tRescue'];
+    for (var i2 = 0; i2 < n; i2++) {
+      rows.push('S' + String(i2 + 1).padStart(2, '0') + '\t' +
+        cols[0][i2].toFixed(3) + '\t' + cols[1][i2].toFixed(3) + '\t' + cols[2][i2].toFixed(3));
+    }
+    return rows.join('\n');
+  }
+
+  /* --------------------- 14. 组分占比示例（饼图 / 旭日图） ---------------- */
+
+  function buildPie() {
+    return ['CellType\tCount',
+      'T cells\t412',
+      'B cells\t168',
+      'Macrophages\t233',
+      'Fibroblasts\t120',
+      'Endothelial\t67',
+      'NK cells\t31',
+      'Neutrophils\t54'].join('\n');
+  }
+
+  function buildPieSunburst() {
+    return ['Lineage\tCellType\tCount',
+      'Immune\tT cells\t412',
+      'Immune\tB cells\t168',
+      'Immune\tMacrophages\t233',
+      'Immune\tNK cells\t31',
+      'Stromal\tFibroblasts\t120',
+      'Stromal\tEndothelial\t67',
+      'Other\tNeutrophils\t54'].join('\n');
+  }
+
+  /* ----------- 15. 折线图示例（宽表，每个时间点 6 个重复） ---------------- */
+
+  function buildLine() {
+    var rng = makeRng(80808080);
+    var times = [0, 6, 12, 24, 48];
+    var amps = [0.80, 2.20, 3.60], taus = [12, 18, 20];
+    var nRep = 6;
+    var rows = ['Time\tControl\tLowDose\tHighDose'];
+    times.forEach(function (t) {
+      for (var r = 0; r < nRep; r++) {
+        var vals = amps.map(function (amp, gi) {
+          return 1 + amp * (1 - Math.exp(-t / taus[gi])) + rng.n(0, 0.07);
+        });
+        rows.push(String(t) + '\t' + vals.map(function (v) { return v.toFixed(3); }).join('\t'));
+      }
+    });
+    return rows.join('\n');
+  }
+
+  /* ------------- 16. 三维散点图示例（三组，每组 14 个样本） ---------------- */
+
+  function buildScatter3D() {
+    var rng = makeRng(90909090);
+    var groups = [
+      { name: 'Tumor', c: [2.60, -1.20, 0.40] },
+      { name: 'Normal', c: [-2.40, 1.30, -0.30] },
+      { name: 'Border', c: [0.10, 0.10, 1.60] }
+    ];
+    var rows = ['Sample\tPC1\tPC2\tPC3\tGroup'];
+    var id = 0;
+    groups.forEach(function (g) {
+      for (var i = 0; i < 14; i++) {
+        id++;
+        rows.push(['S' + String(id).padStart(3, '0'),
+          (g.c[0] + rng.n(0, 0.72)).toFixed(4),
+          (g.c[1] + rng.n(0, 0.72)).toFixed(4),
+          (g.c[2] + rng.n(0, 0.72)).toFixed(4),
+          g.name].join('\t'));
+      }
+    });
+    return rows.join('\n');
+  }
+
+  /* ----- 17. 统计检验示例（宽表，10 名受试者 × 3 组，重复测量设计） ------- */
+
+  function buildStatTest() {
+    var rng = makeRng(12121212);
+    var n = 10;
+    var base = [12.40, 17.80, 14.00];
+    var rows = ['Subject\tControl\tTreated\tRescue'];
+    for (var i = 0; i < n; i++) {
+      var subj = rng.n(0, 1.10);            // 受试者随机效应（形成配对结构）
+      var vals = base.map(function (b) { return b + subj * 0.80 + rng.n(0, 0.50); });
+      rows.push('P' + String(i + 1).padStart(2, '0') + '\t' +
+        vals.map(function (v) { return v.toFixed(2); }).join('\t'));
+    }
+    return rows.join('\n');
+  }
+
   WB.demo = {
     rng: makeRng, GENES: GENES,
     sets: SETS,
@@ -484,9 +621,17 @@
     diffexpGroups: DIFFEXP.groups,
     diffexpTrueUp: DE_UP,
     diffexpTrueDown: DE_DOWN,
+    networkEdges: NETWORK.edges,
+    networkNodes: NETWORK.nodes,
     survivalText: buildSurvival(),
     sequenceText: buildSequence(),
     rocText: buildROC(),
-    uniqueText: buildUnique()
+    uniqueText: buildUnique(),
+    violinText: buildViolin(),
+    pieText: buildPie(),
+    pieSunburstText: buildPieSunburst(),
+    lineText: buildLine(),
+    scatter3dText: buildScatter3D(),
+    stattestText: buildStatTest()
   };
 })(window);

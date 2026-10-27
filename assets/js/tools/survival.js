@@ -457,7 +457,7 @@
   function drawKM(container, groups, kmByGroup, cfg) {
     if (!groups.length) { WB.plot.emptyState(container, T('common.noData')); return null; }
 
-    var W = 760, H = 460, m = { l: 62, r: 26, t: 24, b: 70 };
+    var W = 760, H = 460, m = { l: 66, r: 26, t: 24, b: 70 };
     var canvas = WB.plot.createSVG(container, W, H, {});
     var root = canvas.root;
 
@@ -469,12 +469,12 @@
       if (t < 0 || t > cfg.xMax) return;
       root.appendChild(S('line', { x1: sx(t), y1: m.t, x2: sx(t), y2: H - m.b, stroke: WB.plot.GRID }));
       root.appendChild(WB.plot.txt(sx(t), H - m.b + 17, WB.formatNum(t, 1),
-        { 'text-anchor': 'middle', 'font-size': 10.5, fill: WB.plot.MUTED }));
+        { 'text-anchor': 'middle', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
     [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
       root.appendChild(S('line', { x1: m.l, y1: sy(t), x2: W - m.r, y2: sy(t), stroke: WB.plot.GRID }));
-      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 3.5, t.toFixed(2),
-        { 'text-anchor': 'end', 'font-size': 10.5, fill: WB.plot.MUTED }));
+      root.appendChild(WB.plot.txt(m.l - 8, sy(t) + 4, t.toFixed(2),
+        { 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 600, fill: WB.plot.TICKTEXT }));
     });
     /* 50% 参考线 */
     root.appendChild(S('line', {
@@ -482,7 +482,7 @@
       stroke: '#b6c2cc', 'stroke-dasharray': '5 4'
     }));
     root.appendChild(WB.plot.txt(W - m.r - 4, sy(0.5) - 5, T('中位生存期'), {
-      'text-anchor': 'end', 'font-size': 10, fill: WB.plot.MUTED
+      'text-anchor': 'end', 'font-size': 11, 'font-weight': 600, fill: WB.plot.TICKTEXT
     }));
 
     var colorOf = function (j) { return WB.plot.palette(j); };
@@ -558,9 +558,9 @@
       fill: 'none', stroke: WB.plot.AXIS
     }));
     root.appendChild(WB.plot.txt(m.l + (W - m.l - m.r) / 2, H - 16, cfg.xTitle,
-      { 'text-anchor': 'middle', 'font-size': 12.5, fill: WB.plot.TEXT }));
+      { 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT }));
     var yl = WB.plot.txt(0, 0, cfg.yTitle,
-      { 'text-anchor': 'middle', 'font-size': 12.5, fill: WB.plot.TEXT, transform: 'rotate(-90)' });
+      { 'text-anchor': 'middle', 'font-size': 13.5, 'font-weight': 600, fill: WB.plot.TEXT, transform: 'rotate(-90)' });
     yl.setAttribute('x', -(m.t + (H - m.t - m.b) / 2));
     yl.setAttribute('y', 16);
     root.appendChild(yl);

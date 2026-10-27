@@ -25,6 +25,8 @@
   reg('使用说明', 'User guide');
   reg('集合分析', 'Set analysis');
   reg('功能富集', 'Enrichment');
+  reg('构成与占比', 'Composition');
+  reg('分布与趋势', 'Distribution & trend');
   reg('关系与降维', 'Correlation & dimension');
   reg('差异分析', 'Differential analysis');
   reg('差异与统计', 'Differential & statistics');
@@ -38,9 +40,11 @@
   reg('极速导入，便捷分析', 'Fast import, easy analysis');
   reg('界面语言', 'Interface language');
   reg('界面与图表文字的中英文切换', 'Switch the interface and figures between Chinese and English');
-  reg('集合 / 富集 / 相关性 / 降维 / 差异 / 聚类 / 统计检验 / 生存分析 / 序列常用分析工具；全部计算在浏览器本地完成，数据不上传，无需联网即可使用。',
-    'Common bioinformatics analyses — set / enrichment / correlation / dimensionality reduction / differential / clustering / statistical testing / survival / sequence. All computation runs locally in your browser; no data is uploaded and no network connection is required.');
+  reg('集合 / 富集 / 相关性 / 降维 / 差异 / 聚类 / 网络 / 分布 / 构成 / 趋势 / 统计检验 / 生存分析 / 序列常用分析工具；全部计算在浏览器本地完成，数据不上传，无需联网即可使用。',
+    'Common bioinformatics analyses — set / enrichment / correlation / dimensionality reduction / differential / clustering / network / distribution / composition / trend / statistical testing / survival / sequence. All computation runs locally in your browser; no data is uploaded and no network connection is required.');
   reg('使用步骤', 'Getting started');
+  reg('如遇到 bug，请联系 Mr. Zhang：<a href="mailto:1025295335@qq.com">1025295335@qq.com</a>',
+    'Found a bug? Please contact Mr. Zhang: <a href="mailto:1025295335@qq.com">1025295335@qq.com</a>');
 
   reg('<li>左侧选择需要的分析模块，例如「韦恩图」或「聚类热图」。</li>' +
     '<li>页面顶部会给出<b>输入数据格式示例</b>，按示例格式整理数据即可；可点<b>下载模板</b>、<b>加载示例数据</b>，或直接把 Excel 里的表格复制粘贴到输入框。</li>' +
@@ -105,10 +109,23 @@
     '<li><b>PCA</b>：对中心化（可选标准化）后的数据做协方差矩阵特征分解；样本数远小于变量数时建议勾选标准化。</li>' +
     '<li><b>聚类热图</b>：Z-score 标准化可选按行/按列；层次聚类支持 single / complete / average(UPGMA) / Ward.D2，距离支持欧氏、曼哈顿、最大距离、余弦、1−相关系数。</li>' +
     '<li><b>火山图</b>：阈值默认 |log2FC| ≥ 1、P ≤ 0.05；请使用原始 P 值还是校正后 padj 由你决定。</li>' +
-    '<li><b>差异表达分析</b>：两组用 Welch t 检验（不假定方差相等）与 Wilcoxon 秩和检验（正态近似 + 并列校正 + 连续性校正）；' +
-    '多组用单因素方差分析（F 检验）与 Kruskal-Wallis 检验（卡方近似）；<br>' +
-    '　log2FC = 实验组均值 − 对照组均值（数据已取 log）；若为原始信号强度，则先对组均值取 log2 再相减；' +
-    '多重检验校正可选 BH(FDR) / Bonferroni / Holm。</li>' +
+    '<li><b>差异表达分析</b>：每次只比较<b>选定的两个分组</b>（对照组 vs 实验组），用 Welch t 检验（不假定方差相等）与 Wilcoxon 秩和检验（正态近似 + 并列校正 + 连续性校正），未选中的分组样本不参与计算；<br>' +
+    '　数据尺度：log2 值（原样使用）、原始信号强度（逐值取 log2(x+1)）、RNA-seq 原始计数（按样本文库大小归一化为 CPM 后取 log2(CPM+1)），也可自动识别；<br>' +
+    '　log2FC = 实验组均值 − 对照组均值（检验与差异倍数使用同一变换尺度）；多重检验校正可选 BH(FDR) / Bonferroni / Holm；<br>' +
+    '　多组实验请逐个指定要比较的两个分组分别运行，或用<b>火山图</b>的矩阵模式一次性绘制全部两两组合。</li>' +
+    '<li><b>小提琴图</b>：核密度估计为高斯核，带宽 = 0.9σ·n^(−1/5)（Silverman 经验法则）再乘带宽系数，σ 取标准差与 IQR/1.349 的较小值；<br>' +
+    '　内嵌箱线为 Q1–Q3 与中位数，须为 1.5×IQR；两两比较用 Welch t 检验并统一做 BH 校正，括线按校正后 P 值标注。</li>' +
+    '<li><b>饼图 / 环形图 / 旭日图</b>：占比 = 该类数值 / 全部数值之和，扇区角度 = 占比 × 360°；旭日图内圈为一级类别，外圈角度在父类扇区内再分配。</li>' +
+    '<li><b>折线图</b>：折线连接各位置的均值；误差带可选均值 ± 标准差、± 标准误或 95% 置信区间（均值 ± t(0.975, n−1) × 标准误）；<br>' +
+    '　逐点显著性以第一个系列为参照做 Welch t 检验，全部位置的 P 值统一做 BH 校正；曲线下面积用梯形法按横轴间距累计。</li>' +
+    '<li><b>三维散点图</b>：先绕纵轴旋转（偏航角）再俯仰，按深度由远及近绘制（画家算法）；<br>' +
+    '　95% 置信椭球由协方差矩阵特征分解得到主轴，半轴长 = √特征值 × √7.815（3 个自由度的卡方临界值）。</li>' +
+    '<li><b>统计检验</b>：前提诊断用 Shapiro–Wilk 正态性检验与 Levene（中位数）/ Bartlett 方差齐性检验；<br>' +
+    '　检验库含单样本 t 检验、Student / Welch t 检验、Mann–Whitney U 检验、配对 t 检验、配对 Wilcoxon 符号秩检验、单因素方差分析、Kruskal–Wallis 检验、重复测量方差分析、Friedman 检验、卡方独立性检验（2×2 可选 Yates 校正）与 Fisher 精确检验；<br>' +
+    '　事后比较含 Tukey HSD（学生化极差分布，数值积分求逆）、Dunn 检验、成对 t 检验与成对 Wilcoxon 符号秩检验（BH 校正）；<br>' +
+    '　效应量为 Cohen’s d（含 Cohen’s d_z）、η²、ε²、Kendall’s W、Cramér’s V 与优势比。</li>' +
+    '<li><b>网络图</b>：输入支持边列表（来源/目标/权重/类型）、邻接矩阵（按无向处理，只取上三角）与表达矩阵（两两 Pearson / Spearman 相关，按 |r| 阈值与 FDR 建边）；<br>' +
+    '　布局为确定性 Fruchterman–Reingold 力导向（同一输入重复绘制结果一致），另有按分组聚集、环形与网格布局；节点大小映射度或加权度，颜色映射分组，连线粗细映射 |权重|。</li>' +
     '<li><b>生存分析</b>：Kaplan-Meier 乘积极限估计；log-rank 检验统计量 X² = (O−E)′V⁻¹(O−E)，自由度 = 组数 − 1；<br>' +
     '　中位生存期 = 生存概率首次 ≤ 50% 的时间；95% 置信区间由 Greenwood 方差线性近似（±1.96·SE）。</li>' +
     '<li><b>ROC 与 AUC</b>：AUC 由 ROC 曲线梯形积分得到（等价于 Mann-Whitney U 统计量）；' +
@@ -127,10 +144,23 @@
     '<li><b>PCA</b>: eigen-decomposition of the covariance matrix of centred (optionally standardised) data; standardisation is recommended when samples ≪ variables.</li>' +
     '<li><b>Clustered heatmap</b>: Z-score standardisation by row/column; hierarchical clustering supports single / complete / average (UPGMA) / Ward.D2, with Euclidean, Manhattan, maximum, cosine and 1 − correlation distances.</li>' +
     '<li><b>Volcano plot</b>: default thresholds |log2FC| ≥ 1 and P ≤ 0.05; use raw P or adjusted padj as you prefer.</li>' +
-    '<li><b>Differential expression</b>: Welch t-test (unequal variances) and Wilcoxon rank-sum test (normal approximation with tie and continuity correction) for two groups; ' +
-    'one-way ANOVA (F test) and Kruskal-Wallis test (chi-square approximation) for multiple groups;<br>' +
-    '　log2FC = case mean − control mean on the log scale; for raw signal intensity the group means are log2-transformed first; ' +
-    'multiple-testing correction options are BH (FDR) / Bonferroni / Holm.</li>' +
+    '<li><b>Differential expression</b>: each run compares only the <b>two selected groups</b> (control vs treated) with Welch’s t-test (unequal variances) and the Wilcoxon rank-sum test (normal approximation with tie and continuity correction); samples of unselected groups are excluded;<br>' +
+    '　data scales: log2 values (used as is), raw signal intensity (log2(x+1) per value) and raw RNA-seq counts (CPM per library, then log2(CPM+1)); auto-detection is available;<br>' +
+    '　log2FC = treated group mean − control group mean on the same transformed scale; multiple-testing correction options are BH (FDR) / Bonferroni / Holm;<br>' +
+    '　for experiments with more than two groups, select the pair to compare and run again, or use the matrix mode of the <b>volcano plot</b> to draw all pairwise contrasts in one figure.</li>' +
+    '<li><b>Violin plot</b>: the kernel density estimate uses a Gaussian kernel with bandwidth 0.9σ·n^(−1/5) (Silverman’s rule of thumb) times the bandwidth factor, where σ is the smaller of the standard deviation and IQR/1.349;<br>' +
+    '　the embedded box spans Q1–Q3 with the median line and 1.5×IQR whiskers; pairwise comparisons use Welch’s t-test with a single BH correction, and brackets are annotated with the adjusted P values.</li>' +
+    '<li><b>Pie / doughnut / sunburst</b>: share = value / sum of all values and slice angle = share × 360°; in the sunburst the inner ring holds level-1 categories and outer-ring angles are re-allocated inside each parent slice.</li>' +
+    '<li><b>Line chart</b>: lines connect the means at each position; the error band may be the mean ± SD, ± SEM or the 95% confidence interval (mean ± t(0.975, n−1) × SEM);<br>' +
+    '　per-point significance compares each series with the first one by Welch’s t-test, with a single BH correction across all positions; the area under the curve is accumulated by the trapezoid rule over the x spacing.</li>' +
+    '<li><b>3D scatter plot</b>: the data are rotated about the vertical axis (yaw) and then tilted (pitch), and points are painted from far to near (painter’s algorithm);<br>' +
+    '　95% confidence ellipsoids take their principal axes from eigen-decomposition of the covariance matrix, with semi-axes = √eigenvalue × √7.815 (the chi-square critical value with 3 degrees of freedom).</li>' +
+    '<li><b>Statistical tests</b>: assumption checks use the Shapiro–Wilk normality test and the Levene (median) / Bartlett homogeneity-of-variance tests;<br>' +
+    '　available tests are the one-sample t-test, Student’s / Welch’s t-test, Mann–Whitney U, paired t-test, paired Wilcoxon signed-rank test, one-way ANOVA, Kruskal–Wallis, repeated-measures ANOVA, Friedman, the chi-square test of independence (with optional Yates correction for 2×2) and Fisher’s exact test;<br>' +
+    '　post-hoc comparisons include Tukey HSD (studentised range distribution inverted by numerical integration), Dunn’s test, and pairwise t-tests and pairwise Wilcoxon signed-rank tests with BH correction;<br>' +
+    '　effect sizes are Cohen’s d (and Cohen’s d_z), η², ε², Kendall’s W, Cramér’s V and the odds ratio.</li>' +
+    '<li><b>Network</b>: input may be an edge list (source/target/weight/type), an adjacency matrix (treated as undirected, upper triangle only) or an expression matrix (pairwise Pearson / Spearman correlation, edges by |r| cutoff and FDR);<br>' +
+    '　the layout is a deterministic Fruchterman–Reingold force-directed algorithm (same input, same figure), with grouped, circular and grid alternatives; node size maps to degree or weighted degree, colour to group, and edge width to |weight|.</li>' +
     '<li><b>Survival</b>: Kaplan-Meier product-limit estimator; the log-rank statistic is X² = (O−E)′V⁻¹(O−E) with df = number of groups − 1;<br>' +
     '　median survival is the first time the survival probability drops to ≤ 50%; 95% confidence intervals use a linear Greenwood approximation (±1.96·SE).</li>' +
     '<li><b>ROC &amp; AUC</b>: AUC is obtained by trapezoidal integration of the ROC curve (equivalent to the Mann-Whitney U statistic); ' +
@@ -143,12 +173,20 @@
   reg('<ul>' +
     '<li><b>基因集来源</b>：富集分析需要基因集注释。<br>' +
     '　① 上传本地 <code>.gmt</code> 文件（推荐，来源与版本完全可控）；<br>' +
-    '　② 在线获取 Enrichr 基因集库（需联网，会缓存到浏览器本地）；<br>' +
+    '　② 在线获取 Enrichr 基因集库（需联网，会缓存到浏览器本地）：选好后无需手动下载，点「开始富集分析」时会自动获取所选库，并对已填入的基因做富集；<br>' +
     '　③ 使用内置示例基因集——<b>仅为功能演示</b>，不是完整通路库，不可用于正式分析。</li>' +
     '<li><b>背景基因集</b>：不填时默认用所选基因集库的全部基因为背景。若实验仅检测了部分基因（如靶向 panel），请填写真实背景，否则 P 值会偏小。</li>' +
+    '<li><b>富集分析的物种与基因符号</b>：请按实验物种选择基因集库（Enrichr 库名常带 <code>_Human</code> / <code>_Mouse</code> / <code>_Rat</code> 等物种标记，无标记的库按人源处理）；匹配时忽略大小写，并按物种规范符号书写（人 <code>TP53</code>、小鼠 <code>Tp53</code>、斑马鱼 <code>tp53</code>）。基因集库只接受<b>基因 Symbol</b>，Ensembl / Entrez / 探针 ID 需先转换，否则会被判为未匹配。</li>' +
     '<li><b>统计显著 ≠ 生物学显著</b>：请结合效应量（富集倍数、相关系数）与实验设计综合判断。</li>' +
     '<li>结果图建议导出 <b>SVG</b> 后到 Illustrator / Inkscape 中排版；PNG 导出为 2 倍分辨率。</li>' +
     '<li><b>差异表达的信噪比</b>：每组样本数过少（如每组 2–3 例）时 t 检验与 Wilcoxon 的检验效能都很低；建议每组至少 3 例，并优先报告效应量（log2FC）而不只看 P 值。</li>' +
+    '<li><b>计数矩阵的统计口径</b>：本平台在 log₂-CPM 尺度上用 t 检验比较计数数据，属于 limma-trend 的近似，适合快速筛查与作图；若审稿要求负二项模型的精确检验，请以 DESeq2 / edgeR / limma-voom 的结果为准。</li>' +
+    '<li><b>差异表达只比较两组</b>：本平台每次只做两个分组之间的比较（Welch t / Wilcoxon），不做多组的整体检验。三组及以上的实验请逐对比较并统一校正，或改用<b>统计检验</b>模块的单因素 / 重复测量方差分析路径。</li>' +
+    '<li><b>统计检验的自动推荐</b>：「自动推荐」按 Shapiro–Wilk 与 Levene 的结果选择方法，属于流程化建议；样本量很小（每组 &lt; 5）时正态性与方差齐性检验本身效能不足，请在方法部分写明所选检验及其理由，必要时同时报告参数与非参数结果。</li>' +
+    '<li><b>事后比较的多重性</b>：Tukey HSD 与 Dunn 检验各自控制族系误差；成对 t 检验与成对 Wilcoxon 用 BH 校正，控制的是 FDR 而非 FWER。整体检验不显著时，事后比较的结果仅作参考。</li>' +
+    '<li><b>三维散点图是投影</b>：屏幕上的距离与夹角会随视角改变，不能直接当作样本间距离；定量比较请读取坐标值，或改用 PCA 的方差解释率。</li>' +
+    '<li><b>分布图的平滑参数</b>：小提琴图的核密度带宽与折线图的曲线平滑都只影响外观，请在方法中写明带宽规则并同时给出样本量。</li>' +
+    '<li><b>网络图的取舍</b>：力导向布局只为可读性服务，节点位置不具统计学含义；边的有无取决于阈值（|r| 或权重），阈值变化会改变网络结构，请在方法中写明阈值与校正方式。</li>' +
     '<li><b>生存分析的前提</b>：要求删失与事件相互独立（非信息性删失）；若失访与预后相关，KM 曲线会有偏倚。中位生存期只在随访期内生存概率降到 50% 以下时才有定义。</li>' +
     '<li><b>ROC 的判别方向</b>：请确认分数越高还是越低代表阳性，方向设反会使 AUC 变为 1 − AUC。多个标记物的 AUC 直接比较存在抽样误差，必要时做 DeLong 检验。</li>' +
     '<li><b>序列工具的适用范围</b>：Tm 为经验公式粗估，未考虑盐浓度与最近邻热力学参数，不能替代引物设计软件；等电点基于常用 pKa 表，不同算法结果可能有差异。</li>' +
@@ -156,12 +194,20 @@
     '<ul>' +
     '<li><b>Gene-set source</b>: enrichment needs gene-set annotations.<br>' +
     '　① Upload a local <code>.gmt</code> file (recommended — full control over source and version);<br>' +
-    '　② Fetch an Enrichr library online (requires internet; cached locally in the browser);<br>' +
+    '　② Fetch an Enrichr library online (requires internet; cached locally in the browser): no manual download is needed — click “Run enrichment analysis” and the selected library is fetched automatically, enriching the genes you entered;<br>' +
     '　③ Use the built-in example gene sets — <b>for demonstration only</b>, not a complete pathway library; do not use for real analysis.</li>' +
     '<li><b>Background gene set</b>: if left blank, all genes in the chosen library are used as background. If your assay only measured a subset of genes (e.g. a targeted panel), provide the true background, otherwise P values will be too small.</li>' +
+    '<li><b>Species and gene symbols in enrichment</b>: choose the library for your organism (Enrichr library names carry species tags such as <code>_Human</code>, <code>_Mouse</code> and <code>_Rat</code>; untagged libraries are treated as human). Matching ignores case and symbols are normalised to the species (human <code>TP53</code>, mouse <code>Tp53</code>, zebrafish <code>tp53</code>). Libraries accept <b>gene symbols</b> only — convert Ensembl / Entrez / probe IDs first, otherwise they count as unmatched.</li>' +
     '<li><b>Statistical significance ≠ biological significance</b>: judge together with effect size (fold enrichment, correlation) and the experimental design.</li>' +
     '<li>Export figures as <b>SVG</b> for layout in Illustrator / Inkscape; PNG export is at 2× resolution.</li>' +
     '<li><b>Signal-to-noise in differential expression</b>: with very small groups (e.g. 2–3 samples each) both the t-test and Wilcoxon have low power; we suggest at least 3 per group and reporting effect sizes (log2FC) rather than P values alone.</li>' +
+    '<li><b>Statistical footing for count matrices</b>: count data are compared with a t-test on the log₂-CPM scale, an approximation of limma-trend that suits rapid screening and figure preparation; if exact negative-binomial inference is required, report DESeq2 / edgeR / limma-voom results instead.</li>' +
+    '<li><b>Differential expression compares two groups only</b>: each run contrasts a selected pair (Welch t / Wilcoxon) and performs no omnibus multi-group test. For three or more groups, compare pairs one by one with a single correction, or use the one-way / repeated-measures ANOVA path in <b>Statistical tests</b>.</li>' +
+    '<li><b>Auto-recommendation in statistical tests</b>: “Auto-recommended” picks a method from the Shapiro–Wilk and Levene outcomes; it is a workflow suggestion, not a verdict. With very small groups (&lt; 5 each) the assumption checks themselves lack power — state the chosen test and the reason in your methods, and report parametric and non-parametric results side by side when in doubt.</li>' +
+    '<li><b>Multiplicity of post-hoc comparisons</b>: Tukey HSD and Dunn control the family-wise error rate, whereas pairwise t-tests and pairwise Wilcoxon tests with BH correction control the FDR. When the omnibus test is not significant, treat post-hoc results as indicative only.</li>' +
+    '<li><b>A 3D scatter plot is a projection</b>: on-screen distances and angles change with the viewpoint and are not sample-to-sample distances; read off the coordinates or use the variance explained by PCA for quantitative comparison.</li>' +
+    '<li><b>Smoothing in distribution figures</b>: the KDE bandwidth in violin plots and curve smoothing in line charts only affect appearance; state the bandwidth rule and the sample size in your methods.</li>' +
+    '<li><b>Reading a network figure</b>: the force-directed layout serves readability only and node positions carry no statistical meaning; whether an edge exists depends entirely on the threshold (|r| or weight), so changes in the cutoff change the topology — report the cutoff and the correction used.</li>' +
     '<li><b>Assumptions of survival analysis</b>: censoring must be independent of the event (non-informative censoring); if dropout is related to prognosis the KM curves are biased. The median is defined only if survival falls below 50% within follow-up.</li>' +
     '<li><b>Direction in ROC</b>: confirm whether higher or lower scores indicate positivity — reversing the direction turns the AUC into 1 − AUC. Comparing AUCs across markers is subject to sampling error; use a DeLong test when it matters.</li>' +
     '<li><b>Scope of the sequence toolkit</b>: Tm is a rough empirical estimate that ignores salt concentration and nearest-neighbour thermodynamics and does not replace primer-design software; the isoelectric point uses a common pKa table and may differ between implementations.</li>' +
@@ -173,8 +219,13 @@
     '<li>相关性矩阵为 O(p²·n)，变量数建议 ≤ 60。</li>' +
     '<li>浏览器内存有限，单个文件建议 &lt; 20 MB；超大表格请先预处理。</li>' +
     '<li>差异表达分析对每个基因同时计算参数与非参数检验，基因数建议 ≤ 20000；超过 5000 个基因时不绘制箱线图以节省内存。</li>' +
+    '<li>网络图建议 ≤ 400 个节点、≤ 4000 条连线；用表达矩阵建网时基因数 ≤ 400（组合数随基因数平方增长）。</li>' +
     '<li>ROC 分析的计算量与「样本数 × 标记物数」成正比，标记物建议 ≤ 50 个。</li>' +
     '<li>序列工具可一次处理数百条序列；超长序列（&gt; 10 Mb）请先切分。</li>' +
+    '<li>小提琴图每列绘制一次核密度（O(格点数 × n)），变量数建议 ≤ 12、每列 ≤ 2000 个观测。</li>' +
+    '<li>折线图的横轴位置建议 ≤ 60；开启个体连线时每个位置最多绘制 200 条。</li>' +
+    '<li>三维散点图建议 ≤ 600 个点；绘制 95% 置信椭球时每组至少需要 4 个样本。</li>' +
+    '<li>统计检验建议分组数 ≤ 12、每组 ≤ 2000 个观测；Tukey HSD 与 Dunn 检验的组合数为 C(k, 2)。</li>' +
     '</ul>',
     '<ul>' +
     '<li>The UpSet plot enumerates all non-empty intersection combinations; we suggest ≤ 8 sets and ≤ 5000 elements per set.</li>' +
@@ -182,14 +233,19 @@
     '<li>The correlation matrix is O(p²·n); we suggest ≤ 60 variables.</li>' +
     '<li>Browser memory is limited; keep individual files &lt; 20 MB and pre-process very large tables.</li>' +
     '<li>Differential expression runs both a parametric and a non-parametric test per gene; we suggest ≤ 20000 genes. Above 5000 genes the box plot is skipped to save memory.</li>' +
+    '<li>Network plots: we suggest ≤ 400 nodes and ≤ 4000 edges; when building a network from an expression matrix, ≤ 400 genes (the number of pairs grows with the square of the gene count).</li>' +
     '<li>ROC analysis scales with (samples × markers); we suggest ≤ 50 markers.</li>' +
     '<li>The sequence toolkit handles hundreds of sequences at once; split very long sequences (&gt; 10 Mb) first.</li>' +
+    '<li>The violin plot evaluates one KDE per column (O(grid × n)); we suggest ≤ 12 variables and ≤ 2000 observations per column.</li>' +
+    '<li>Line charts: we suggest ≤ 60 x positions; individual lines are capped at 200 per position.</li>' +
+    '<li>3D scatter plots: we suggest ≤ 600 points; a 95% confidence ellipsoid needs at least 4 samples per group.</li>' +
+    '<li>Statistical tests: we suggest ≤ 12 groups and ≤ 2000 observations per group; Tukey HSD and Dunn evaluate C(k, 2) pairs.</li>' +
     '</ul>');
 
-  reg('<p>页面内置了一套自动化自检（统计内核数值验证、数据解析、十二个模块端到端运行）。' +
+  reg('<p>页面内置了一套自动化自检（统计内核数值验证、数据解析、十八个模块端到端运行）。' +
     '如果你修改过代码或怀疑浏览器兼容问题，可打开 <code><a href="selftest.html" target="_blank">selftest.html</a></code> 查看结果：' +
     '标题栏会显示 <code>pass / fail / err</code> 计数，全部通过时应为 <code>fail=0 err=0</code>。</p>',
-    '<p>The page ships with an automated self-test (numerical checks of the statistics core, data parsing, and end-to-end runs of all twelve modules). ' +
+    '<p>The page ships with an automated self-test (numerical checks of the statistics core, data parsing, and end-to-end runs of all eighteen modules). ' +
     'If you have modified the code or suspect a browser-compatibility issue, open <code><a href="selftest.html" target="_blank">selftest.html</a></code> to see the result: ' +
     'the title bar shows the <code>pass / fail / err</code> counts, which should read <code>fail=0 err=0</code> when everything passes.</p>');
 
@@ -206,8 +262,8 @@
     }
     document.documentElement.setAttribute('lang', WB.i18n.getLang() === 'en' ? 'en' : 'zh-CN');
     document.title = WB.i18n.getLang() === 'en'
-      ? 'Bioinformatics Studio · Venn / Enrichment / UpSet / Correlation / PCA / Volcano / Heatmap / DiffExp / Survival / ROC / Sequence'
-      : '生物信息学在线分析平台 · Venn / 富集 / UpSet / 相关性 / PCA / 火山图 / 热图 / 差异 / 生存 / ROC / 序列';
+      ? 'Bioinformatics Studio · Venn / Enrichment / UpSet / Correlation / PCA / Volcano / Heatmap / DiffExp / Survival / ROC / Sequence / Network'
+      : '生物信息学在线分析平台 · Venn / 富集 / UpSet / 相关性 / PCA / 火山图 / 热图 / 差异 / 生存 / ROC / 序列 / 网络图';
   }
 
   /* ------------------------------- 导航 --------------------------------- */
@@ -215,15 +271,17 @@
   var GROUPS = [
     { name: '集合分析', ids: ['venn', 'upset'] },
     { name: '功能富集', ids: ['enrichment'] },
-    { name: '关系与降维', ids: ['correlation', 'pca', 'heatmap'] },
-    { name: '差异与统计', ids: ['volcano', 'diffexp', 'survival', 'roc'] },
+    { name: '构成与占比', ids: ['pie'] },
+    { name: '分布与趋势', ids: ['violin', 'line'] },
+    { name: '关系与降维', ids: ['correlation', 'pca', 'heatmap', 'network', 'scatter3d'] },
+    { name: '差异与统计', ids: ['volcano', 'diffexp', 'survival', 'roc', 'stattest'] },
     { name: '序列与数据', ids: ['sequence', 'unique'] }
   ];
 
   function buildNav() {
     var nav = WB.$('#nav');
     WB.clear(nav);
-    nav.appendChild(navItem({ id: 'home', name: WB.t('首页 / 概览'), icon: '⌂' }));
+    nav.appendChild(navItem({ id: 'home', name: WB.t('首页 / 概览'), icon: '⌂', top: true }));
     GROUPS.forEach(function (grp) {
       nav.appendChild(el('div.nav-group', { text: WB.t(grp.name) }));
       grp.ids.forEach(function (id) {
@@ -236,7 +294,7 @@
   }
 
   function navItem(cfg) {
-    var node = el('div.nav-item', { 'data-id': cfg.id }, [
+    var node = el(cfg.top ? 'div.nav-item.nav-top' : 'div.nav-item', { 'data-id': cfg.id }, [
       el('span', { text: cfg.name })
     ]);
     node.addEventListener('click', function () { location.hash = '#/' + cfg.id; });
@@ -290,7 +348,7 @@
       el('img.home-logo', { src: 'assets/img/logo-mark.png', alt: 'Bioinformatics Studio' }),
       el('div.home-head-text', [
         el('h1', { text: WB.t('生物信息学在线分析平台') }),
-        el('p', { text: WB.t('集合 / 富集 / 相关性 / 降维 / 差异 / 聚类 / 统计检验 / 生存分析 / 序列常用分析工具；全部计算在浏览器本地完成，数据不上传，无需联网即可使用。') })
+        el('p', { text: WB.t('集合 / 富集 / 相关性 / 降维 / 差异 / 聚类 / 网络 / 分布 / 构成 / 趋势 / 统计检验 / 生存分析 / 序列常用分析工具；全部计算在浏览器本地完成，数据不上传，无需联网即可使用。') })
       ])
     ]));
 
@@ -320,6 +378,11 @@
         '把整个文件夹复制到任意电脑、双击 <code>index.html</code> 即可离线使用（所有脚本均已本地内置，零外部依赖）。</span>')
     }));
     main.appendChild(info);
+
+    /* 反馈渠道：置于首页最底部，不打断上方主内容 */
+    main.appendChild(el('p.home-contact', {
+      html: WB.t('如遇到 bug，请联系 Mr. Zhang：<a href="mailto:1025295335@qq.com">1025295335@qq.com</a>')
+    }));
   }
 
   /* ------------------------------ 使用说明 ------------------------------- */
@@ -370,10 +433,23 @@
       '<li><b>PCA</b>：对中心化（可选标准化）后的数据做协方差矩阵特征分解；样本数远小于变量数时建议勾选标准化。</li>' +
       '<li><b>聚类热图</b>：Z-score 标准化可选按行/按列；层次聚类支持 single / complete / average(UPGMA) / Ward.D2，距离支持欧氏、曼哈顿、最大距离、余弦、1−相关系数。</li>' +
       '<li><b>火山图</b>：阈值默认 |log2FC| ≥ 1、P ≤ 0.05；请使用原始 P 值还是校正后 padj 由你决定。</li>' +
-      '<li><b>差异表达分析</b>：两组用 Welch t 检验（不假定方差相等）与 Wilcoxon 秩和检验（正态近似 + 并列校正 + 连续性校正）；' +
-      '多组用单因素方差分析（F 检验）与 Kruskal-Wallis 检验（卡方近似）；<br>' +
-      '　log2FC = 实验组均值 − 对照组均值（数据已取 log）；若为原始信号强度，则先对组均值取 log2 再相减；' +
-      '多重检验校正可选 BH(FDR) / Bonferroni / Holm。</li>' +
+      '<li><b>差异表达分析</b>：每次只比较<b>选定的两个分组</b>（对照组 vs 实验组），用 Welch t 检验（不假定方差相等）与 Wilcoxon 秩和检验（正态近似 + 并列校正 + 连续性校正），未选中的分组样本不参与计算；<br>' +
+      '　数据尺度：log2 值（原样使用）、原始信号强度（逐值取 log2(x+1)）、RNA-seq 原始计数（按样本文库大小归一化为 CPM 后取 log2(CPM+1)），也可自动识别；<br>' +
+      '　log2FC = 实验组均值 − 对照组均值（检验与差异倍数使用同一变换尺度）；多重检验校正可选 BH(FDR) / Bonferroni / Holm；<br>' +
+      '　多组实验请逐个指定要比较的两个分组分别运行，或用<b>火山图</b>的矩阵模式一次性绘制全部两两组合。</li>' +
+      '<li><b>小提琴图</b>：核密度估计为高斯核，带宽 = 0.9σ·n^(−1/5)（Silverman 经验法则）再乘带宽系数，σ 取标准差与 IQR/1.349 的较小值；<br>' +
+      '　内嵌箱线为 Q1–Q3 与中位数，须为 1.5×IQR；两两比较用 Welch t 检验并统一做 BH 校正，括线按校正后 P 值标注。</li>' +
+      '<li><b>饼图 / 环形图 / 旭日图</b>：占比 = 该类数值 / 全部数值之和，扇区角度 = 占比 × 360°；旭日图内圈为一级类别，外圈角度在父类扇区内再分配。</li>' +
+      '<li><b>折线图</b>：折线连接各位置的均值；误差带可选均值 ± 标准差、± 标准误或 95% 置信区间（均值 ± t(0.975, n−1) × 标准误）；<br>' +
+      '　逐点显著性以第一个系列为参照做 Welch t 检验，全部位置的 P 值统一做 BH 校正；曲线下面积用梯形法按横轴间距累计。</li>' +
+      '<li><b>三维散点图</b>：先绕纵轴旋转（偏航角）再俯仰，按深度由远及近绘制（画家算法）；<br>' +
+      '　95% 置信椭球由协方差矩阵特征分解得到主轴，半轴长 = √特征值 × √7.815（3 个自由度的卡方临界值）。</li>' +
+      '<li><b>统计检验</b>：前提诊断用 Shapiro–Wilk 正态性检验与 Levene（中位数）/ Bartlett 方差齐性检验；<br>' +
+      '　检验库含单样本 t 检验、Student / Welch t 检验、Mann–Whitney U 检验、配对 t 检验、配对 Wilcoxon 符号秩检验、单因素方差分析、Kruskal–Wallis 检验、重复测量方差分析、Friedman 检验、卡方独立性检验（2×2 可选 Yates 校正）与 Fisher 精确检验；<br>' +
+      '　事后比较含 Tukey HSD（学生化极差分布，数值积分求逆）、Dunn 检验、成对 t 检验与成对 Wilcoxon 符号秩检验（BH 校正）；<br>' +
+      '　效应量为 Cohen’s d（含 Cohen’s d_z）、η²、ε²、Kendall’s W、Cramér’s V 与优势比。</li>' +
+      '<li><b>网络图</b>：输入支持边列表（来源/目标/权重/类型）、邻接矩阵（按无向处理，只取上三角）与表达矩阵（两两 Pearson / Spearman 相关，按 |r| 阈值与 FDR 建边）；<br>' +
+      '　布局为确定性 Fruchterman–Reingold 力导向（同一输入重复绘制结果一致），另有按分组聚集、环形与网格布局；节点大小映射度或加权度，颜色映射分组，连线粗细映射 |权重|。</li>' +
       '<li><b>生存分析</b>：Kaplan-Meier 乘积极限估计；log-rank 检验统计量 X² = (O−E)′V⁻¹(O−E)，自由度 = 组数 − 1；<br>' +
       '　中位生存期 = 生存概率首次 ≤ 50% 的时间；95% 置信区间由 Greenwood 方差线性近似（±1.96·SE）。</li>' +
       '<li><b>ROC 与 AUC</b>：AUC 由 ROC 曲线梯形积分得到（等价于 Mann-Whitney U 统计量）；' +
@@ -389,12 +465,20 @@
       '<ul>' +
       '<li><b>基因集来源</b>：富集分析需要基因集注释。<br>' +
       '　① 上传本地 <code>.gmt</code> 文件（推荐，来源与版本完全可控）；<br>' +
-      '　② 在线获取 Enrichr 基因集库（需联网，会缓存到浏览器本地）；<br>' +
+      '　② 在线获取 Enrichr 基因集库（需联网，会缓存到浏览器本地）：选好后无需手动下载，点「开始富集分析」时会自动获取所选库，并对已填入的基因做富集；<br>' +
       '　③ 使用内置示例基因集——<b>仅为功能演示</b>，不是完整通路库，不可用于正式分析。</li>' +
       '<li><b>背景基因集</b>：不填时默认用所选基因集库的全部基因为背景。若实验仅检测了部分基因（如靶向 panel），请填写真实背景，否则 P 值会偏小。</li>' +
+    '<li><b>富集分析的物种与基因符号</b>：请按实验物种选择基因集库（Enrichr 库名常带 <code>_Human</code> / <code>_Mouse</code> / <code>_Rat</code> 等物种标记，无标记的库按人源处理）；匹配时忽略大小写，并按物种规范符号书写（人 <code>TP53</code>、小鼠 <code>Tp53</code>、斑马鱼 <code>tp53</code>）。基因集库只接受<b>基因 Symbol</b>，Ensembl / Entrez / 探针 ID 需先转换，否则会被判为未匹配。</li>' +
       '<li><b>统计显著 ≠ 生物学显著</b>：请结合效应量（富集倍数、相关系数）与实验设计综合判断。</li>' +
       '<li>结果图建议导出 <b>SVG</b> 后到 Illustrator / Inkscape 中排版；PNG 导出为 2 倍分辨率。</li>' +
       '<li><b>差异表达的信噪比</b>：每组样本数过少（如每组 2–3 例）时 t 检验与 Wilcoxon 的检验效能都很低；建议每组至少 3 例，并优先报告效应量（log2FC）而不只看 P 值。</li>' +
+    '<li><b>计数矩阵的统计口径</b>：本平台在 log₂-CPM 尺度上用 t 检验比较计数数据，属于 limma-trend 的近似，适合快速筛查与作图；若审稿要求负二项模型的精确检验，请以 DESeq2 / edgeR / limma-voom 的结果为准。</li>' +
+    '<li><b>差异表达只比较两组</b>：本平台每次只做两个分组之间的比较（Welch t / Wilcoxon），不做多组的整体检验。三组及以上的实验请逐对比较并统一校正，或改用<b>统计检验</b>模块的单因素 / 重复测量方差分析路径。</li>' +
+    '<li><b>统计检验的自动推荐</b>：「自动推荐」按 Shapiro–Wilk 与 Levene 的结果选择方法，属于流程化建议；样本量很小（每组 &lt; 5）时正态性与方差齐性检验本身效能不足，请在方法部分写明所选检验及其理由，必要时同时报告参数与非参数结果。</li>' +
+    '<li><b>事后比较的多重性</b>：Tukey HSD 与 Dunn 检验各自控制族系误差；成对 t 检验与成对 Wilcoxon 用 BH 校正，控制的是 FDR 而非 FWER。整体检验不显著时，事后比较的结果仅作参考。</li>' +
+    '<li><b>三维散点图是投影</b>：屏幕上的距离与夹角会随视角改变，不能直接当作样本间距离；定量比较请读取坐标值，或改用 PCA 的方差解释率。</li>' +
+    '<li><b>分布图的平滑参数</b>：小提琴图的核密度带宽与折线图的曲线平滑都只影响外观，请在方法中写明带宽规则并同时给出样本量。</li>' +
+    '<li><b>网络图的取舍</b>：力导向布局只为可读性服务，节点位置不具统计学含义；边的有无取决于阈值（|r| 或权重），阈值变化会改变网络结构，请在方法中写明阈值与校正方式。</li>' +
       '<li><b>生存分析的前提</b>：要求删失与事件相互独立（非信息性删失）；若失访与预后相关，KM 曲线会有偏倚。中位生存期只在随访期内生存概率降到 50% 以下时才有定义。</li>' +
       '<li><b>ROC 的判别方向</b>：请确认分数越高还是越低代表阳性，方向设反会使 AUC 变为 1 − AUC。多个标记物的 AUC 直接比较存在抽样误差，必要时做 DeLong 检验。</li>' +
       '<li><b>序列工具的适用范围</b>：Tm 为经验公式粗估，未考虑盐浓度与最近邻热力学参数，不能替代引物设计软件；等电点基于常用 pKa 表，不同算法结果可能有差异。</li>' +
@@ -409,14 +493,19 @@
       '<li>相关性矩阵为 O(p²·n)，变量数建议 ≤ 60。</li>' +
       '<li>浏览器内存有限，单个文件建议 &lt; 20 MB；超大表格请先预处理。</li>' +
       '<li>差异表达分析对每个基因同时计算参数与非参数检验，基因数建议 ≤ 20000；超过 5000 个基因时不绘制箱线图以节省内存。</li>' +
+    '<li>网络图建议 ≤ 400 个节点、≤ 4000 条连线；用表达矩阵建网时基因数 ≤ 400（组合数随基因数平方增长）。</li>' +
       '<li>ROC 分析的计算量与「样本数 × 标记物数」成正比，标记物建议 ≤ 50 个。</li>' +
       '<li>序列工具可一次处理数百条序列；超长序列（&gt; 10 Mb）请先切分。</li>' +
+      '<li>小提琴图每列绘制一次核密度（O(格点数 × n)），变量数建议 ≤ 12、每列 ≤ 2000 个观测。</li>' +
+      '<li>折线图的横轴位置建议 ≤ 60；开启个体连线时每个位置最多绘制 200 条。</li>' +
+      '<li>三维散点图建议 ≤ 600 个点；绘制 95% 置信椭球时每组至少需要 4 个样本。</li>' +
+      '<li>统计检验建议分组数 ≤ 12、每组 ≤ 2000 个观测；Tukey HSD 与 Dunn 检验的组合数为 C(k, 2)。</li>' +
       '</ul>'));
     main.appendChild(c4);
 
     var c5 = WB.ui.card(WB.t('自检'));
     c5.querySelector('.card-body').appendChild(doc(
-      '<p>页面内置了一套自动化自检（统计内核数值验证、数据解析、十二个模块端到端运行）。' +
+      '<p>页面内置了一套自动化自检（统计内核数值验证、数据解析、十八个模块端到端运行）。' +
       '如果你修改过代码或怀疑浏览器兼容问题，可打开 <code><a href="selftest.html" target="_blank">selftest.html</a></code> 查看结果：' +
       '标题栏会显示 <code>pass / fail / err</code> 计数，全部通过时应为 <code>fail=0 err=0</code>。</p>'));
     main.appendChild(c5);

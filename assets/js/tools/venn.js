@@ -208,10 +208,27 @@
     var n = sets.length;
     var width = opt.width || 660;
     var height = opt.height || (n === 4 ? 470 : 400);
-    var scale = Math.min(width - 60, height - 70);
-    var offX = (width - scale) / 2, offY = (height - scale) / 2 + 6;
     var colors = sets.map(function (_, i) { return WB.plot.palette(i); });
     var shapes = (n === 2 ? layout2() : n === 3 ? layout3() : layout4()).shapes;
+    var centroids = regionCentroids(shapes, n === 4 ? 340 : 280);
+
+    /* 预留集合名标签空间：按标签朝向分配边距，正常长度的名称不截断（空间不够时自动加宽画布） */
+    var fsz = 12.5;
+    var sideL = 8, sideR = 8, vT = 8, vB = 8;
+    shapes.forEach(function (sp, i) {
+      var c = centroids.get(1 << i) || { x: sp.cx, y: sp.cy };
+      var dx = c.x - 0.5, dy = c.y - 0.5;
+      var w = WB.plot.textW(sets[i].name, fsz) + 16;   // 引线端点圆点 + 间隙
+      if (dx > 0.25) sideR = Math.max(sideR, w);
+      else if (dx < -0.25) sideL = Math.max(sideL, w);
+      else if (dy > 0) vB = Math.max(vB, 26);
+      else vT = Math.max(vT, 26);
+    });
+    var scale = Math.min(width - 60 - sideL - sideR, height - 70 - vT - vB);
+    if (scale < 170) scale = 170;                      // 极端小画布的兜底
+    width = Math.max(width, Math.ceil(scale + 60 + sideL + sideR));
+    var offX = sideL + 30 + (width - 60 - sideL - sideR - scale) / 2;
+    var offY = (height - scale) / 2 + 6 + (vT - vB) / 2;
 
     var canvas = WB.plot.createSVG(container, width, height, {});
     var root = canvas.root;
@@ -228,9 +245,7 @@
       root.appendChild(S(p.tag, p.attrs));
     });
 
-    var centroids = regionCentroids(shapes, n === 4 ? 340 : 280);
-
-    // 集合名（置于形状外，带引线）
+    // 集合名（置于形状外，带引线；质心已在尺寸计算前求得）
     shapes.forEach(function (sp, i) {
       var c = centroids.get(1 << i) || { x: sp.cx, y: sp.cy };
       var lp = outwardLabelPos(i, c, shapes);
@@ -240,14 +255,17 @@
       var ty = ly + (Math.abs(lp.dx) > 0.25 ? 4 : (lp.dy > 0 ? 15 : -5));
       tx = WB.clamp(tx, anchor === 'start' ? 6 : (anchor === 'end' ? 6 : 8), width - 6);
       ty = WB.clamp(ty, 14, height - 6);
+      /* 标签按像素预算显示：预留边距内完整显示，极端长名才收缩 */
+      var budget = anchor === 'start' ? width - tx - 4
+        : (anchor === 'end' ? tx - 4 : Math.min(tx - 4, width - tx - 4) * 2);
       // 引线
       root.appendChild(S('line', {
         x1: px(c.x), y1: py(c.y), x2: lx, y2: ly,
         stroke: colors[i], 'stroke-width': 1, 'stroke-dasharray': '3 3', opacity: 0.8
       }));
       root.appendChild(S('circle', { cx: lx, cy: ly, r: 3.2, fill: colors[i] }));
-      var nameTxt = WB.plot.txt(tx, ty, WB.plot.ellipsis(sets[i].name, 18), {
-        'text-anchor': anchor, 'font-size': 12.5, 'font-weight': 700, fill: colors[i]
+      var nameTxt = WB.plot.txt(tx, ty, WB.plot.truncateW(sets[i].name, budget, fsz), {
+        'text-anchor': anchor, 'font-size': fsz, 'font-weight': 700, fill: colors[i]
       });
       root.appendChild(nameTxt);
       WB.plot.bindTip(nameTxt, function () {
@@ -505,13 +523,15 @@
     var w = 640, barH = 22, gap = 10;
     var h = sets.length * (barH + gap) + 46;
     var c = WB.plot.createSVG(container, w, h, {});
-    var labelW = 128, rightW = 62;
+    var maxNameW = Math.max.apply(null, sets.map(function (s) { return WB.plot.textW(s.name, 12.5); }));
+    var labelW = WB.clamp(Math.ceil(maxNameW) + 18, 128, 320);   // 随最长集合名自适应
+    var rightW = 62;
     var maxV = Math.max.apply(null, sets.map(function (s) { return s.elements.length; }));
     var innerW = w - labelW - rightW - 30;
     sets.forEach(function (s, i) {
       var y = 16 + i * (barH + gap);
       var bw = maxV ? innerW * s.elements.length / maxV : 0;
-      c.root.appendChild(WB.plot.txt(labelW - 10, y + 15, WB.plot.ellipsis(s.name, 18), {
+      c.root.appendChild(WB.plot.txt(labelW - 10, y + 15, WB.plot.truncateW(s.name, labelW - 12, 12.5), {
         'text-anchor': 'end', 'font-size': 12.5, fill: WB.plot.TEXT
       }));
       c.root.appendChild(S('rect', {
@@ -532,8 +552,16 @@
   function drawPairMatrix(container, sets) {
     WB.clear(container);
     var n = sets.length;
-    var cell = 62, labelW = 118, topH = 64;
-    var w = labelW + n * cell + 24, h = topH + n * cell + 14;
+    var cell = 62;
+    var maxNameW = Math.max.apply(null, sets.map(function (s) { return WB.plot.textW(s.name, 11.5); }));
+    var labelW = WB.clamp(Math.ceil(maxNameW) + 14, 118, 260);   // 左侧行标签自适应
+    /* 顶部标签旋转 -42°：占位高 ≈ 0.67×宽，宽 ≈ 0.74×宽，据此自适应 topH 与画布宽。
+     * 余量取足（32/30 与 18/16），保证 topBudget ≥ maxNameW，正常名称不截断；超出上限才收缩。 */
+    var topH = WB.clamp(Math.ceil(32 + maxNameW * 0.67), 64, 200);
+    var w = Math.max(labelW + n * cell + 24,
+      Math.ceil(labelW + (n - 1) * cell + cell / 2 + maxNameW * 0.74 + 18));
+    var h = topH + n * cell + 14;
+    var topBudget = Math.min((topH - 30) / 0.67, (w - 16 - (labelW + (n - 1) * cell + cell / 2)) / 0.74);
     var c = WB.plot.createSVG(container, w, h, {});
     var map = new Map();
     sets.forEach(function (s, i) { s.elements.forEach(function (g) { map.set(g + '|' + i, 1); }); });
@@ -566,12 +594,12 @@
       }
     }
     for (var k = 0; k < n; k++) {
-      var t1 = WB.plot.txt(labelW + k * cell + cell / 2, topH - 10, WB.plot.ellipsis(sets[k].name, 9), {
+      var t1 = WB.plot.txt(labelW + k * cell + cell / 2, topH - 10, WB.plot.truncateW(sets[k].name, topBudget, 11.5), {
         'text-anchor': 'start', 'font-size': 11.5, fill: WB.plot.TEXT,
         transform: 'rotate(-42 ' + (labelW + k * cell + cell / 2) + ' ' + (topH - 10) + ')'
       });
       c.root.appendChild(t1);
-      c.root.appendChild(WB.plot.txt(labelW - 10, topH + k * cell + cell / 2 + 4, WB.plot.ellipsis(sets[k].name, 16), {
+      c.root.appendChild(WB.plot.txt(labelW - 10, topH + k * cell + cell / 2 + 4, WB.plot.truncateW(sets[k].name, labelW - 14, 11.5), {
         'text-anchor': 'end', 'font-size': 11.5, fill: WB.plot.TEXT
       }));
     }
